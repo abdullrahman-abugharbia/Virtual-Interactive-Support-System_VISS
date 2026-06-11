@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avatar</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+    #avatar-container { width: 100%; height: 100%; }
+
+    #status {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.45);
+      color: #fff;
+      font-family: sans-serif;
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
+      white-space: nowrap;
+    }
+    #status.visible { opacity: 1; }
+
+    #loader {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(to bottom, #eef2ff, #ffffff);
+      gap: 12px;
+      font-family: sans-serif;
+      color: #6366f1;
+    }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #c7d2fe;
+      border-top-color: #6366f1;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loader p { font-size: 13px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <div id="loader">
+    <div class="spinner"></div>
+    <p>Loading avatar…</p>
+  </div>
+  <div id="avatar-container"></div>
+  <div id="status"></div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import { TalkingHead } from '/talkinghead/talkinghead.mjs';
+
+    const container = document.getElementById('avatar-container');
+    const loader    = document.getElementById('loader');
+    const statusEl  = document.getElementById('status');
+
+    let head = null;
+    let ready = false;
+    let pendingSpeak = null;
+
+    // ── Show/hide the status label ──────────────────────────────
+    function showStatus(text) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle('visible', !!text);
+    }
+
+    // ── Pick a female English voice for browser TTS ─────────────
+    function pickVoice() {
+      const voices = speechSynthesis.getVoices();
+      return (
+        voices.find(v => v.lang.startsWith('en') && /female|zira|hazel|susan|samantha|victoria/i.test(v.name)) ||
+        voices.find(v => v.lang === 'en-US') ||
+        voices.find(v => v.lang.startsWith('en')) ||
+        voices[0] ||
+        null
+      );
+    }
+
+    // ── Initialise TalkingHead (no TTS endpoint — we use browser TTS) ──
+    async function initAvatar() {
+      head = new TalkingHead(container, {
+        ttsEndpoint: '',        // empty → no external TTS API used
+        cameraView: 'upper',
+        cameraRotateEnable: false,
+      });
+
+      try {
+        await head.showAvatar(
+          {
+            url         : '/avatars/brunette.glb',
+            body        : 'F',
+            avatarMood  : 'neutral',
+            lipsyncLang : 'en',
+          },
+          (ev) => {
+            if (ev.lengthComputable) {
+              const pct = Math.round((ev.loaded / ev.total) * 100);
+              document.querySelector('#loader p').textContent = `Loading avatar… ${pct}%`;
+            }
+          }
+        );
+
+        loader.style.display = 'none';
+        ready = true;
+        window.parent.postMessage({ type: 'AVATAR_READY' }, '*');
+
+        if (pendingSpeak) {
+          speak(pendingSpeak.text);
+          pendingSpeak = null;
+        }
+      } catch (err) {
+        document.querySelector('#loader p').textContent = 'Avatar failed to load.';
+        console.error('[avatar-frame] showAvatar error:', err);
+      }
+    }
+
+    // ── Speak: browser TTS for audio + speakAudio (silent buffer) for lip-sync ──
+    // speakText with avatarMute:true makes all visemes fire in ~10ms each (way too fast).
+    // Instead we pass a silent AudioBuffer to speakAudio so TalkingHead uses the buffer
+    // duration as the animation timeline, giving properly-timed lip movement.
+    const CHARS_PER_SEC = 13; // empirical: English TTS at rate 0.92
+
+    async function speak(text) {
+      if (!head || !ready) { pendingSpeak = { text }; return; }
+      window.parent.postMessage({ type: 'SPEAK_START' }, '*');
+      showStatus('');
+
+      try {
+        // Estimate total speech duration and spread words across it
+        const words = text.trim().split(/\s+/).filter(Boolean);
+        const estimatedSec = Math.max(1.0, text.length / CHARS_PER_SEC);
+        const msPerWord    = (estimatedSec * 1000) / Math.max(1, words.length);
+        const wtimes       = words.map((_, i) => i * msPerWord);
+        const wdurations   = words.map(() => msPerWord * 0.85);
+
+        // Silent AudioBuffer gives TalkingHead the timing reference it needs
+        const ctx          = head.audioCtx;
+        const silentBuffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * estimatedSec), ctx.sampleRate);
+
+        head.speakAudio({ words, wtimes, wdurations, audio: silentBuffer });
+        const lipPromise = new Promise(resolve => head.speakMarker(resolve));
+
+        // Browser audio — free, built-in, no key needed
+        const audioPromise = new Promise((resolve) => {
+          window.speechSynthesis.cancel();
+          const utt = new SpeechSynthesisUtterance(text);
+          utt.lang = 'en-US';
+          utt.rate = 0.92;
+
+          function trySpeak() {
+            const voice = pickVoice();
+            if (voice) utt.voice = voice;
+            utt.onend   = resolve;
+            utt.onerror = resolve;
+            speechSynthesis.speak(utt);
+          }
+
+          if (speechSynthesis.getVoices().length > 0) {
+            trySpeak();
+          } else {
+            speechSynthesis.addEventListener('voiceschanged', trySpeak, { once: true });
+          }
+        });
+
+        await Promise.all([lipPromise, audioPromise]);
+      } catch (err) {
+        console.error('[avatar-frame] speak error:', err);
+      }
+
+      window.parent.postMessage({ type: 'SPEAK_END' }, '*');
+    }
+
+    // ── Set mood / expression ───────────────────────────────────
+    function setMood(mood) {
+      if (!head || !ready) return;
+      try { head.setMood(mood); } catch {}
+    }
+
+    // ── Announce readiness to parent, retrying until INIT arrives ─
+    let initReceived = false;
+    function announceReady() {
+      if (!initReceived) window.parent.postMessage({ type: 'FRAME_LOADED' }, '*');
+    }
+    announceReady();
+    const readyInterval = setInterval(announceReady, 200);
+
+    // ── Listen for messages from parent React app ───────────────
+    window.addEventListener('message', (e) => {
+      const { type, payload } = e.data || {};
+      switch (type) {
+        case 'INIT':
+          if (initReceived) break;
+          initReceived = true;
+          clearInterval(readyInterval);
+          initAvatar();          // no API keys needed
+          break;
+        case 'SPEAK':
+          speak(payload?.text || '');
+          break;
+        case 'SET_MOOD':
+          setMood(payload?.mood || 'neutral');
+          switch (payload?.mood) {
+            case 'listening': showStatus('🎤 Listening…'); break;
+            case 'thinking':  showStatus('💭 Thinking…');  break;
+            default:          showStatus('');               break;
+          }
+          break;
+        default:
+          break;
+      }
+    });
+  </script>
+</body>
+</html>
