@@ -25,6 +25,8 @@ app.use(
       return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
+    // Allow the browser to read the pagination total on cross-origin requests.
+    exposedHeaders: ['X-Total-Count'],
   })
 );
 

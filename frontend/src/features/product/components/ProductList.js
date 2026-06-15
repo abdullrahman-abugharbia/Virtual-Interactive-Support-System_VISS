@@ -10,34 +10,25 @@ import {
   selectProductListStatus,
   selectTotalItems,
 } from '../productSlice';
-import { Dialog, Disclosure, Menu, Transition } from '@headlessui/react';
-import { XMarkIcon } from '@heroicons/react/24/outline';
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  StarIcon,
-} from '@heroicons/react/20/solid';
+import { Dialog, Transition } from '@headlessui/react';
+import { XMarkIcon, FunnelIcon } from '@heroicons/react/24/outline';
 import { Link } from 'react-router-dom';
-import {
-  ChevronDownIcon,
-  FunnelIcon,
-  MinusIcon,
-  PlusIcon,
-  Squares2X2Icon,
-} from '@heroicons/react/20/solid';
 import { ITEMS_PER_PAGE } from '../../../app/constants';
 import Pagination from '../../common/Pagination';
 import { Grid } from 'react-loader-spinner';
+import { addToCartAsync, selectItems } from '../../cart/cartSlice';
+import { useAlert } from 'react-alert';
+import ProductImage from '../../common/ProductImage';
+import {
+  selectRequestedFilters,
+  clearRequestedFilters,
+} from '../../support/supportSlice';
 
 const sortOptions = [
-  { name: 'Best Rating', sort: 'rating', order: 'desc', current: false },
-  { name: 'Price: Low to High', sort: 'discountPrice', order: 'asc', current: false },
-  { name: 'Price: High to Low', sort: 'discountPrice', order: 'desc', current: false },
+  { name: 'Best rating', sort: 'rating', order: 'desc', current: false },
+  { name: 'Price: low to high', sort: 'discountPrice', order: 'asc', current: false },
+  { name: 'Price: high to low', sort: 'discountPrice', order: 'desc', current: false },
 ];
-
-function classNames(...classes) {
-  return classes.filter(Boolean).join(' ');
-}
 
 export default function ProductList() {
   const dispatch = useDispatch();
@@ -46,6 +37,9 @@ export default function ProductList() {
   const categories = useSelector(selectCategories);
   const totalItems = useSelector(selectTotalItems);
   const status = useSelector(selectProductListStatus);
+  const cartItems = useSelector(selectItems);
+  const requestedFilters = useSelector(selectRequestedFilters);
+  const alert = useAlert();
   const filters = [
     {
       id: 'category',
@@ -54,7 +48,7 @@ export default function ProductList() {
     },
     {
       id: 'brand',
-      name: 'Brands',
+      name: 'Brand',
       options: brands,
     },
   ];
@@ -65,35 +59,51 @@ export default function ProductList() {
   const [page, setPage] = useState(1);
 
   const handleFilter = (e, section, option) => {
-    console.log(e.target.checked);
-    const newFilter = { ...filter };
-    if (e.target.checked) {
-      if (newFilter[section.id]) {
-        newFilter[section.id].push(option.value);
-      } else {
-        newFilter[section.id] = [option.value];
-      }
-    } else {
-      const index = newFilter[section.id].findIndex(
-        (el) => el === option.value
-      );
-      newFilter[section.id].splice(index, 1);
-    }
-    console.log({ newFilter });
+    // Immutable update — never mutate the existing arrays (they may be frozen
+    // when applied from Aria via Redux state).
+    const current = filter[section.id] ? [...filter[section.id]] : [];
+    const next = e.target.checked
+      ? [...current, option.value]
+      : current.filter((el) => el !== option.value);
 
+    const newFilter = { ...filter };
+    if (next.length) {
+      newFilter[section.id] = next;
+    } else {
+      delete newFilter[section.id];
+    }
     setFilter(newFilter);
   };
 
   const handleSort = (e, option) => {
     const sort = { _sort: option.sort, _order: option.order };
-    console.log({ sort });
     setSort(sort);
   };
 
   const handlePage = (page) => {
-    console.log({ page });
     setPage(page);
   };
+
+  const handleAddToCart = (e, product) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (product.stock <= 0) {
+      alert.error('Sorry — out of stock');
+      return;
+    }
+    if (cartItems.findIndex((item) => item.product.id === product.id) < 0) {
+      dispatch(addToCartAsync({ item: { product: product.id, quantity: 1 }, alert }));
+    } else {
+      alert.error('Item Already added');
+    }
+  };
+
+  const activeFilterCount = Object.values(filter).reduce(
+    (n, arr) => n + (arr ? arr.length : 0),
+    0
+  );
+  const hasFilters = activeFilterCount > 0;
+  const clearFilters = () => setFilter({});
 
   useEffect(() => {
     const pagination = { _page: page, _limit: ITEMS_PER_PAGE };
@@ -109,114 +119,175 @@ export default function ProductList() {
     dispatch(fetchCategoriesAsync());
   }, []);
 
-  return (
-    <div className="bg-white">
-      <div>
-        <MobileFilter
-          handleFilter={handleFilter}
-          mobileFiltersOpen={mobileFiltersOpen}
-          setMobileFiltersOpen={setMobileFiltersOpen}
-          filters={filters}
-        ></MobileFilter>
+  // Aria asked to filter (brand and/or category) → check them in the filter state.
+  useEffect(() => {
+    if (requestedFilters) {
+      // Clone arrays — Redux state is frozen, and handleFilter must stay mutable-safe.
+      const next = {};
+      if (requestedFilters.category?.length) next.category = [...requestedFilters.category];
+      if (requestedFilters.brand?.length) next.brand = [...requestedFilters.brand];
+      setFilter(next); // empty object = cleared filters
+      setPage(1);
+      dispatch(clearRequestedFilters());
+    }
+  }, [requestedFilters, dispatch]);
 
-        <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex items-baseline justify-between border-b border-gray-200 pb-6 pt-24">
-            <h1 className="text-4xl font-bold tracking-tight text-gray-900">
+  // map current sort to the select value (index into sortOptions)
+  const selectedSortIndex = sortOptions.findIndex(
+    (o) => o.sort === sort._sort && o.order === sort._order
+  );
+
+  const onSortChange = (e) => {
+    const idx = e.target.value;
+    if (idx === '') {
+      setSort({});
+      return;
+    }
+    handleSort(e, sortOptions[+idx]);
+  };
+
+  return (
+    <div className="bg-background">
+      <MobileFilter
+        handleFilter={handleFilter}
+        mobileFiltersOpen={mobileFiltersOpen}
+        setMobileFiltersOpen={setMobileFiltersOpen}
+        filters={filters}
+        filter={filter}
+        hasFilters={hasFilters}
+        clearFilters={clearFilters}
+      />
+
+      <main className="mx-auto max-w-[1440px] px-5 pb-24 pt-11 sm:px-10">
+        {/* Header row */}
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div>
+            <h1 className="text-[30px] font-bold tracking-[-0.02em] text-content">
               All Products
             </h1>
-
-            <div className="flex items-center">
-              <Menu as="div" className="relative inline-block text-left">
-                <div>
-                  <Menu.Button className="group inline-flex justify-center text-sm font-medium text-gray-700 hover:text-gray-900">
-                    Sort
-                    <ChevronDownIcon
-                      className="-mr-1 ml-1 h-5 w-5 flex-shrink-0 text-gray-400 group-hover:text-gray-500"
-                      aria-hidden="true"
-                    />
-                  </Menu.Button>
-                </div>
-
-                <Transition
-                  as={Fragment}
-                  enter="transition ease-out duration-100"
-                  enterFrom="transform opacity-0 scale-95"
-                  enterTo="transform opacity-100 scale-100"
-                  leave="transition ease-in duration-75"
-                  leaveFrom="transform opacity-100 scale-100"
-                  leaveTo="transform opacity-0 scale-95"
-                >
-                  <Menu.Items className="absolute right-0 z-10 mt-2 w-40 origin-top-right rounded-md bg-white shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none">
-                    <div className="py-1">
-                      {sortOptions.map((option) => (
-                        <Menu.Item key={option.name}>
-                          {({ active }) => (
-                            <p
-                              onClick={(e) => handleSort(e, option)}
-                              className={classNames(
-                                option.current
-                                  ? 'font-medium text-gray-900'
-                                  : 'text-gray-500',
-                                active ? 'bg-gray-100' : '',
-                                'block px-4 py-2 text-sm'
-                              )}
-                            >
-                              {option.name}
-                            </p>
-                          )}
-                        </Menu.Item>
-                      ))}
-                    </div>
-                  </Menu.Items>
-                </Transition>
-              </Menu>
-
-              <button
-                type="button"
-                className="-m-2 ml-5 p-2 text-gray-400 hover:text-gray-500 sm:ml-7"
-              >
-                <span className="sr-only">View grid</span>
-                <Squares2X2Icon className="h-5 w-5" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className="-m-2 ml-4 p-2 text-gray-400 hover:text-gray-500 sm:ml-6 lg:hidden"
-                onClick={() => setMobileFiltersOpen(true)}
-              >
-                <span className="sr-only">Filters</span>
-                <FunnelIcon className="h-5 w-5" aria-hidden="true" />
-              </button>
-            </div>
+            <p className="mt-2 text-sm text-muted">
+              {totalItems} {totalItems === 1 ? 'product' : 'products'}
+            </p>
           </div>
 
-          <section aria-labelledby="products-heading" className="pb-24 pt-6">
-            <h2 id="products-heading" className="sr-only">
-              Products
-            </h2>
-
-            <div className="grid grid-cols-1 gap-x-8 gap-y-10 lg:grid-cols-4">
-              <DesktopFilter
-                handleFilter={handleFilter}
-                filters={filters}
-              ></DesktopFilter>
-              {/* Product grid */}
-              <div className="lg:col-span-3">
-                <ProductGrid products={products} status={status}></ProductGrid>
-              </div>
-              {/* Product grid end */}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileFiltersOpen(true)}
+              className="flex items-center gap-2 rounded-[10px] border border-line bg-surface px-3.5 py-2.5 text-[13px] font-medium text-muted transition-colors hover:text-content lg:hidden"
+            >
+              <FunnelIcon className="h-4 w-4" />
+              Filters
+            </button>
+            <div className="relative">
+              <select
+                onChange={onSortChange}
+                value={selectedSortIndex === -1 ? '' : selectedSortIndex}
+                className="cursor-pointer appearance-none rounded-[10px] border border-line bg-surface bg-none py-2.5 pl-3.5 pr-9 text-[13px] font-medium text-content outline-none focus:border-primary"
+              >
+                <option value="">Best match</option>
+                {sortOptions.map((option, idx) => (
+                  <option key={option.name} value={idx}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-dim">
+                ▼
+              </span>
             </div>
-          </section>
+          </div>
+        </div>
 
-          {/* section of product and filters ends */}
-          <Pagination
-            page={page}
-            setPage={setPage}
-            handlePage={handlePage}
-            totalItems={totalItems}
-          ></Pagination>
-        </main>
+        {/* Two-column layout */}
+        <div className="mt-9 grid grid-cols-1 items-start gap-11 lg:grid-cols-[250px_1fr]">
+          <DesktopFilter
+            handleFilter={handleFilter}
+            filters={filters}
+            filter={filter}
+            hasFilters={hasFilters}
+            clearFilters={clearFilters}
+          />
+
+          <div>
+            <ProductGrid
+              products={products}
+              status={status}
+              handleAddToCart={handleAddToCart}
+            />
+            <Pagination
+              page={page}
+              setPage={setPage}
+              handlePage={handlePage}
+              totalItems={totalItems}
+            />
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+/* ── Custom checkbox filter row ──────────────────────────────── */
+function FilterGroup({ section, handleFilter, idPrefix, filter }) {
+  return (
+    <div className="mb-6">
+      <div className="border-b border-line-subtle pb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-dim">
+        {section.name}
+      </div>
+      <div className="flex flex-col py-2.5">
+        {section.options.map((option, optionIdx) => (
+          <label
+            key={option.value}
+            htmlFor={`${idPrefix}-${section.id}-${optionIdx}`}
+            className="group flex cursor-pointer items-center gap-2.5 py-[7px]"
+          >
+            <input
+              id={`${idPrefix}-${section.id}-${optionIdx}`}
+              name={`${section.id}[]`}
+              value={option.value}
+              type="checkbox"
+              checked={(filter?.[section.id] || []).includes(option.value)}
+              onChange={(e) => handleFilter(e, section, option)}
+              className="peer sr-only"
+            />
+            <span className="flex h-[17px] w-[17px] flex-shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-[#475569] text-[11px] font-bold leading-none text-transparent transition-colors peer-checked:border-primary peer-checked:bg-primary peer-checked:text-white">
+              ✓
+            </span>
+            <span className="text-sm text-[#CBD5E1]">{option.label}</span>
+            {option.count != null && (
+              <span className="ml-auto font-mono text-[11.5px] text-dim">
+                {option.count}
+              </span>
+            )}
+          </label>
+        ))}
       </div>
     </div>
+  );
+}
+
+function DesktopFilter({ handleFilter, filters, filter, hasFilters, clearFilters }) {
+  return (
+    <aside className="sticky top-24 hidden lg:block">
+      {filters.map((section) => (
+        <FilterGroup
+          key={section.id}
+          section={section}
+          handleFilter={handleFilter}
+          filter={filter}
+          idPrefix="filter"
+        />
+      ))}
+      {hasFilters && (
+        <button
+          onClick={clearFilters}
+          className="py-1 text-[13px] font-medium text-primary-hover transition-colors hover:text-primary-light"
+        >
+          Clear all filters
+        </button>
+      )}
+    </aside>
   );
 }
 
@@ -225,6 +296,9 @@ function MobileFilter({
   setMobileFiltersOpen,
   handleFilter,
   filters,
+  filter,
+  hasFilters,
+  clearFilters,
 }) {
   return (
     <Transition.Root show={mobileFiltersOpen} as={Fragment}>
@@ -242,7 +316,7 @@ function MobileFilter({
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-black bg-opacity-25" />
+          <div className="fixed inset-0 bg-black/60" />
         </Transition.Child>
 
         <div className="fixed inset-0 z-40 flex">
@@ -255,12 +329,12 @@ function MobileFilter({
             leaveFrom="translate-x-0"
             leaveTo="translate-x-full"
           >
-            <Dialog.Panel className="relative ml-auto flex h-full w-full max-w-xs flex-col overflow-y-auto bg-white py-4 pb-12 shadow-xl">
+            <Dialog.Panel className="relative ml-auto flex h-full w-full max-w-xs flex-col overflow-y-auto border-l border-line bg-surface py-4 pb-12 shadow-auth">
               <div className="flex items-center justify-between px-4">
-                <h2 className="text-lg font-medium text-gray-900">Filters</h2>
+                <h2 className="text-lg font-semibold text-content">Filters</h2>
                 <button
                   type="button"
-                  className="-mr-2 flex h-10 w-10 items-center justify-center rounded-md bg-white p-2 text-gray-400"
+                  className="-mr-2 flex h-10 w-10 items-center justify-center rounded-lg p-2 text-muted hover:text-content"
                   onClick={() => setMobileFiltersOpen(false)}
                 >
                   <span className="sr-only">Close menu</span>
@@ -268,69 +342,25 @@ function MobileFilter({
                 </button>
               </div>
 
-              {/* Filters */}
-              <form className="mt-4 border-t border-gray-200">
+              <div className="mt-4 border-t border-line-subtle px-4 pt-4">
                 {filters.map((section) => (
-                  <Disclosure
-                    as="div"
+                  <FilterGroup
                     key={section.id}
-                    className="border-t border-gray-200 px-4 py-6"
-                  >
-                    {({ open }) => (
-                      <>
-                        <h3 className="-mx-2 -my-3 flow-root">
-                          <Disclosure.Button className="flex w-full items-center justify-between bg-white px-2 py-3 text-gray-400 hover:text-gray-500">
-                            <span className="font-medium text-gray-900">
-                              {section.name}
-                            </span>
-                            <span className="ml-6 flex items-center">
-                              {open ? (
-                                <MinusIcon
-                                  className="h-5 w-5"
-                                  aria-hidden="true"
-                                />
-                              ) : (
-                                <PlusIcon
-                                  className="h-5 w-5"
-                                  aria-hidden="true"
-                                />
-                              )}
-                            </span>
-                          </Disclosure.Button>
-                        </h3>
-                        <Disclosure.Panel className="pt-6">
-                          <div className="space-y-6">
-                            {section.options.map((option, optionIdx) => (
-                              <div
-                                key={option.value}
-                                className="flex items-center"
-                              >
-                                <input
-                                  id={`filter-mobile-${section.id}-${optionIdx}`}
-                                  name={`${section.id}[]`}
-                                  defaultValue={option.value}
-                                  type="checkbox"
-                                  defaultChecked={option.checked}
-                                  onChange={(e) =>
-                                    handleFilter(e, section, option)
-                                  }
-                                  className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                                />
-                                <label
-                                  htmlFor={`filter-mobile-${section.id}-${optionIdx}`}
-                                  className="ml-3 min-w-0 flex-1 text-gray-500"
-                                >
-                                  {option.label}
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </Disclosure.Panel>
-                      </>
-                    )}
-                  </Disclosure>
+                    section={section}
+                    handleFilter={handleFilter}
+                    filter={filter}
+                    idPrefix="filter-mobile"
+                  />
                 ))}
-              </form>
+                {hasFilters && (
+                  <button
+                    onClick={clearFilters}
+                    className="py-1 text-[13px] font-medium text-primary-hover transition-colors hover:text-primary-light"
+                  >
+                    Clear all filters
+                  </button>
+                )}
+              </div>
             </Dialog.Panel>
           </Transition.Child>
         </div>
@@ -339,126 +369,92 @@ function MobileFilter({
   );
 }
 
-function DesktopFilter({ handleFilter, filters }) {
-  return (
-    <form className="hidden lg:block">
-      {filters.map((section) => (
-        <Disclosure
-          as="div"
-          key={section.id}
-          className="border-b border-gray-200 py-6"
-        >
-          {({ open }) => (
-            <>
-              <h3 className="-my-3 flow-root">
-                <Disclosure.Button className="flex w-full items-center justify-between bg-white py-3 text-sm text-gray-400 hover:text-gray-500">
-                  <span className="font-medium text-gray-900">
-                    {section.name}
-                  </span>
-                  <span className="ml-6 flex items-center">
-                    {open ? (
-                      <MinusIcon className="h-5 w-5" aria-hidden="true" />
-                    ) : (
-                      <PlusIcon className="h-5 w-5" aria-hidden="true" />
-                    )}
-                  </span>
-                </Disclosure.Button>
-              </h3>
-              <Disclosure.Panel className="pt-6">
-                <div className="space-y-4">
-                  {section.options.map((option, optionIdx) => (
-                    <div key={option.value} className="flex items-center">
-                      <input
-                        id={`filter-${section.id}-${optionIdx}`}
-                        name={`${section.id}[]`}
-                        defaultValue={option.value}
-                        type="checkbox"
-                        defaultChecked={option.checked}
-                        onChange={(e) => handleFilter(e, section, option)}
-                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <label
-                        htmlFor={`filter-${section.id}-${optionIdx}`}
-                        className="ml-3 text-sm text-gray-600"
-                      >
-                        {option.label}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </Disclosure.Panel>
-            </>
-          )}
-        </Disclosure>
-      ))}
-    </form>
-  );
-}
-
-function ProductGrid({ products, status }) {
-  return (
-    <div className="bg-white">
-      <div className="mx-auto max-w-2xl px-4 py-0 sm:px-6 sm:py-0 lg:max-w-7xl lg:px-8">
-        <div className="mt-6 grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3 xl:gap-x-8">
-          {status === 'loading' ? (
-            <Grid
-              height="80"
-              width="80"
-              color="rgb(79, 70, 229) "
-              ariaLabel="grid-loading"
-              radius="12.5"
-              wrapperStyle={{}}
-              wrapperClass=""
-              visible={true}
-            />
-          ) : null}
-          {products.map((product) => (
-            <Link to={`/product-detail/${product.id}`} key={product.id}>
-              <div className="group relative border-solid border-2 p-2 border-gray-200">
-                <div className="min-h-60 aspect-h-1 aspect-w-1 w-full overflow-hidden rounded-md bg-gray-200 lg:aspect-none group-hover:opacity-75 lg:h-60">
-                  <img
-                    src={product.thumbnail}
-                    alt={product.title}
-                    className="h-full w-full object-cover object-center lg:h-full lg:w-full"
-                  />
-                </div>
-                <div className="mt-4 flex justify-between">
-                  <div>
-                    <h3 className="text-sm text-gray-700">
-                      <div href={product.thumbnail}>
-                        <span aria-hidden="true" className="absolute inset-0" />
-                        {product.title}
-                      </div>
-                    </h3>
-                    <p className="mt-1 text-sm text-gray-500">
-                      <StarIcon className="w-6 h-6 inline"></StarIcon>
-                      <span className=" align-bottom">{product.rating}</span>
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm block font-medium text-gray-900">
-                      ${product.discountPrice}
-                    </p>
-                    <p className="text-sm block line-through font-medium text-gray-400">
-                      ${product.price}
-                    </p>
-                  </div>
-                </div>
-                {product.deleted && (
-                  <div>
-                    <p className="text-sm text-red-400">product deleted</p>
-                  </div>
-                )}
-                {product.stock <= 0 && (
-                  <div>
-                    <p className="text-sm text-red-400">out of stock</p>
-                  </div>
-                )}
-              </div>
-            </Link>
-          ))}
-        </div>
+function ProductGrid({ products, status, handleAddToCart }) {
+  if (status === 'loading') {
+    return (
+      <div className="flex justify-center py-24">
+        <Grid
+          height="70"
+          width="70"
+          color="#6366F1"
+          ariaLabel="grid-loading"
+          radius="12.5"
+          visible={true}
+        />
       </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-[22px] sm:grid-cols-2 xl:grid-cols-3">
+      {products.map((product) => {
+        const discount =
+          product.price > 0
+            ? Math.round((1 - product.discountPrice / product.price) * 100)
+            : 0;
+        const outOfStock = product.stock <= 0;
+        return (
+          <Link
+            to={`/product-detail/${product.id}`}
+            key={product.id}
+            className="group block overflow-hidden rounded-card border border-line bg-surface transition-all duration-200 hover:-translate-y-[3px] hover:border-primary/65 hover:shadow-card-hover"
+          >
+            {/* Image area */}
+            <div className="relative aspect-[4/3] overflow-hidden border-b border-surface-raised bg-background">
+              <ProductImage
+                src={product.thumbnail}
+                alt={product.title}
+                className="h-full w-full object-cover object-center"
+              />
+              {outOfStock ? (
+                <span className="absolute left-3 top-3 rounded-full border border-error/35 bg-error/[0.14] px-2.5 py-1 text-[11px] font-semibold text-error-text">
+                  Out of stock
+                </span>
+              ) : (
+                discount > 0 && (
+                  <span className="absolute left-3 top-3 rounded-full border border-primary/40 bg-primary-soft px-2.5 py-1 text-[11px] font-semibold text-primary-light">
+                    −{discount}%
+                  </span>
+                )
+              )}
+            </div>
+
+            {/* Body */}
+            <div className="p-4 pb-[18px]">
+              <div className="text-[10.5px] font-semibold uppercase tracking-[0.09em] text-primary-hover">
+                {product.brand}
+              </div>
+              <div className="mt-1.5 text-[15px] font-semibold leading-[1.35] text-content">
+                {product.title}
+              </div>
+              <div className="mt-1.5 flex items-center gap-1.5 text-[13px] text-muted">
+                <span className="text-[12px] text-primary-hover">★</span>
+                {product.rating}
+              </div>
+              <div className="mt-3 flex items-center justify-between">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[18px] font-bold tracking-[-0.01em] text-content">
+                    ${product.discountPrice}
+                  </span>
+                  {discount > 0 && (
+                    <span className="text-[13px] text-dim line-through">
+                      ${product.price}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  title="Add to cart"
+                  onClick={(e) => handleAddToCart(e, product)}
+                  className="flex h-9 w-9 items-center justify-center rounded-[10px] border border-line bg-surface-raised text-[19px] leading-none text-primary-lighter transition-all hover:border-primary hover:bg-primary hover:text-white"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </Link>
+        );
+      })}
     </div>
   );
 }

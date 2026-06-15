@@ -48,14 +48,14 @@ export default function AvatarCanvas() {
 
   return (
     <div
-      className="relative w-full h-full"
-      style={{ background: 'linear-gradient(to bottom, #eef2ff, #ffffff)', borderRadius: '1rem 0 0 1rem', overflow: 'hidden' }}
+      className="relative h-full w-full"
+      style={{ background: 'transparent', overflow: 'hidden' }}
     >
       <iframe
         ref={iframeRef}
         src="/avatar-frame.html"
         title="Aria avatar"
-        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block', background: 'transparent' }}
         allow="microphone"
       />
     </div>

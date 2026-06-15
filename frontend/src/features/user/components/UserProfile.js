@@ -3,16 +3,67 @@ import { useSelector, useDispatch } from 'react-redux';
 import { selectUserInfo, updateUserAsync } from '../userSlice';
 import { useForm } from 'react-hook-form';
 
+const inputCls =
+  'w-full rounded-[10px] border border-line bg-background px-3.5 py-[11px] text-sm text-content outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary-soft';
+const labelCls = 'mb-[7px] block text-[13px] font-medium text-[#CBD5E1]';
+
+function initialsFor(userInfo) {
+  const source = (userInfo?.name || userInfo?.email || 'V').trim();
+  const parts = source.split(/[\s@.]+/).filter(Boolean);
+  const letters = (parts[0]?.[0] || '') + (parts[1]?.[0] || '');
+  return (letters || source[0] || 'V').toUpperCase();
+}
+
+function AddressFields({ register, errors }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="sm:col-span-2">
+        <label htmlFor="name" className={labelCls}>Full name</label>
+        <input id="name" type="text" className={inputCls} {...register('name', { required: 'name is required' })} />
+        {errors.name && <p className="mt-1 text-[12.5px] text-error-text">{errors.name.message}</p>}
+      </div>
+      <div className="sm:col-span-2">
+        <label htmlFor="email" className={labelCls}>Email address</label>
+        <input id="email" type="email" className={inputCls} {...register('email', { required: 'email is required' })} />
+        {errors.email && <p className="mt-1 text-[12.5px] text-error-text">{errors.email.message}</p>}
+      </div>
+      <div className="sm:col-span-2">
+        <label htmlFor="street" className={labelCls}>Street address</label>
+        <input id="street" type="text" className={inputCls} {...register('street', { required: 'street is required' })} />
+        {errors.street && <p className="mt-1 text-[12.5px] text-error-text">{errors.street.message}</p>}
+      </div>
+      <div>
+        <label htmlFor="city" className={labelCls}>City</label>
+        <input id="city" type="text" autoComplete="address-level2" className={inputCls} {...register('city', { required: 'city is required' })} />
+        {errors.city && <p className="mt-1 text-[12.5px] text-error-text">{errors.city.message}</p>}
+      </div>
+      <div>
+        <label htmlFor="state" className={labelCls}>State / Province</label>
+        <input id="state" type="text" className={inputCls} {...register('state', { required: 'state is required' })} />
+        {errors.state && <p className="mt-1 text-[12.5px] text-error-text">{errors.state.message}</p>}
+      </div>
+      <div>
+        <label htmlFor="pinCode" className={labelCls}>ZIP / Postal code</label>
+        <input id="pinCode" type="text" className={inputCls} {...register('pinCode', { required: 'pinCode is required' })} />
+        {errors.pinCode && <p className="mt-1 text-[12.5px] text-error-text">{errors.pinCode.message}</p>}
+      </div>
+      <div>
+        <label htmlFor="phone" className={labelCls}>Phone</label>
+        <input id="phone" type="tel" className={inputCls} {...register('phone', { required: 'phone is required' })} />
+        {errors.phone && <p className="mt-1 text-[12.5px] text-error-text">{errors.phone.message}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function UserProfile() {
   const dispatch = useDispatch();
   const rawUserInfo = useSelector(selectUserInfo);
-  // Guard: addresses must always be a plain array
   const userInfo = rawUserInfo
     ? { ...rawUserInfo, addresses: Array.isArray(rawUserInfo.addresses) ? rawUserInfo.addresses : [] }
     : null;
   const [selectedEditIndex, setSelectedEditIndex] = useState(-1);
   const [showAddAddressForm, setShowAddAddressForm] = useState(false);
-
 
   const {
     register,
@@ -23,19 +74,20 @@ export default function UserProfile() {
   } = useForm();
 
   const handleEdit = (addressUpdate, index) => {
-    const newUser = { ...userInfo, addresses: [...userInfo.addresses] }; // for shallow copy issue
+    const newUser = { ...userInfo, addresses: [...userInfo.addresses] };
     newUser.addresses.splice(index, 1, addressUpdate);
     dispatch(updateUserAsync(newUser));
     setSelectedEditIndex(-1);
   };
   const handleRemove = (e, index) => {
-    const newUser = { ...userInfo, addresses: [...userInfo.addresses] }; // for shallow copy issue
+    const newUser = { ...userInfo, addresses: [...userInfo.addresses] };
     newUser.addresses.splice(index, 1);
     dispatch(updateUserAsync(newUser));
   };
 
   const handleEditForm = (index) => {
     setSelectedEditIndex(index);
+    setShowAddAddressForm(false);
     const address = userInfo.addresses[index];
     setValue('name', address.name);
     setValue('email', address.email);
@@ -52,482 +104,140 @@ export default function UserProfile() {
     setShowAddAddressForm(false);
   };
 
+  if (!userInfo) return null;
+
+  const openAddForm = () => {
+    setShowAddAddressForm(true);
+    setSelectedEditIndex(-1);
+    reset();
+  };
+
   return (
-    <div>
-      <div className="mx-auto mt-12 bg-white max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="border-t border-gray-200 px-4 py-6 sm:px-6">
-          <h1 className="text-4xl my-5 font-bold tracking-tight text-gray-900">
-            Name: {userInfo.name ? userInfo.name : 'New User'}
-          </h1>
-          <h3 className="text-xl my-5 font-bold tracking-tight text-red-900">
-            email address : {userInfo.email}
-          </h3>
+    <main className="mx-auto max-w-[760px] px-5 pb-24 pt-11 sm:px-10">
+      <h1 className="text-[30px] font-bold tracking-[-0.02em] text-content">My Profile</h1>
+
+      {/* Identity card */}
+      <div className="mt-8 flex items-center gap-5 rounded-card border border-line bg-surface p-[26px]">
+        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-logo-gradient text-[21px] font-bold text-white">
+          {initialsFor(userInfo)}
+        </span>
+        <div className="min-w-0">
+          <div className="text-[18px] font-bold text-content">{userInfo.name || 'New User'}</div>
+          <div className="mt-1 text-[13.5px] text-muted">{userInfo.email}</div>
           {userInfo.role === 'admin' && (
-            <h3 className="text-xl my-5 font-bold tracking-tight text-red-900">
-              role : {userInfo.role}
-            </h3>
+            <div className="mt-1 text-[12px] font-medium uppercase tracking-wide text-primary-hover">
+              {userInfo.role}
+            </div>
           )}
         </div>
+        <div className="flex-1" />
+        <button
+          onClick={openAddForm}
+          className="rounded-[10px] border border-line bg-surface-raised px-[18px] py-2.5 text-[13.5px] font-semibold text-[#CBD5E1] transition-colors hover:border-[#475569] hover:text-content"
+        >
+          Edit profile
+        </button>
+      </div>
 
-        <div className="border-t border-gray-200 px-4 py-6 sm:px-6">
-          <button
-            onClick={(e) => {
-              setShowAddAddressForm(true);
-              setSelectedEditIndex(-1);
-            }}
-            type="submit"
-            className="rounded-md my-5 bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-          >
-            Add New Address
-          </button>
-          {showAddAddressForm ? (
-            <form
-              className="bg-white px-5 py-12 mt-12"
-              noValidate
-              onSubmit={handleSubmit((data) => {
-                console.log(data);
-                handleAdd(data);
-                reset();
-              })}
+      {/* Saved addresses */}
+      <div className="mt-9 flex items-baseline justify-between">
+        <h2 className="text-[18px] font-bold text-content">Saved addresses</h2>
+        <button
+          onClick={openAddForm}
+          className="text-[13.5px] font-semibold text-primary-hover transition-colors hover:text-primary-light"
+        >
+          + Add new address
+        </button>
+      </div>
+
+      {showAddAddressForm && (
+        <form
+          className="mt-4 rounded-card border border-line bg-surface p-[26px]"
+          noValidate
+          onSubmit={handleSubmit((data) => {
+            handleAdd(data);
+            reset();
+          })}
+        >
+          <div className="mb-4 text-[15px] font-bold text-content">New address</div>
+          <AddressFields register={register} errors={errors} />
+          <div className="mt-5 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setShowAddAddressForm(false)}
+              className="rounded-[10px] px-4 py-2 text-[13.5px] font-semibold text-muted transition-colors hover:text-content"
             >
-              <div className="space-y-12">
-                <div className="border-b border-gray-900/10 pb-12">
-                  <h2 className="text-2xl font-semibold leading-7 text-gray-900">
-                    Personal Information
-                  </h2>
-                  <p className="mt-1 text-sm leading-6 text-gray-600">
-                    Use a permanent address where you can receive mail.
-                  </p>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="rounded-[10px] bg-primary px-4 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-primary-hover"
+            >
+              Add address
+            </button>
+          </div>
+        </form>
+      )}
 
-                  <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-6">
-                    <div className="sm:col-span-4">
-                      <label
-                        htmlFor="name"
-                        className="block text-sm font-medium leading-6 text-gray-900"
-                      >
-                        Full name
-                      </label>
-                      <div className="mt-2">
-                        <input
-                          type="text"
-                          {...register('name', {
-                            required: 'name is required',
-                          })}
-                          id="name"
-                          className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                        />
-                        {errors.name && (
-                          <p className="text-red-500">{errors.name.message}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="sm:col-span-4">
-                      <label
-                        htmlFor="email"
-                        className="block text-sm font-medium leading-6 text-gray-900"
-                      >
-                        Email address
-                      </label>
-                      <div className="mt-2">
-                        <input
-                          id="email"
-                          {...register('email', {
-                            required: 'email is required',
-                          })}
-                          type="email"
-                          className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                        />
-                        {errors.email && (
-                          <p className="text-red-500">{errors.email.message}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="sm:col-span-3">
-                      <label
-                        htmlFor="phone"
-                        className="block text-sm font-medium leading-6 text-gray-900"
-                      >
-                        Phone
-                      </label>
-                      <div className="mt-2">
-                        <input
-                          id="phone"
-                          {...register('phone', {
-                            required: 'phone is required',
-                          })}
-                          type="tel"
-                          className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                        />
-                        {errors.phone && (
-                          <p className="text-red-500">{errors.phone.message}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="col-span-full">
-                      <label
-                        htmlFor="street-address"
-                        className="block text-sm font-medium leading-6 text-gray-900"
-                      >
-                        Street address
-                      </label>
-                      <div className="mt-2">
-                        <input
-                          type="text"
-                          {...register('street', {
-                            required: 'street is required',
-                          })}
-                          id="street"
-                          className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                        />
-                        {errors.street && (
-                          <p className="text-red-500">
-                            {errors.street.message}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="sm:col-span-2 sm:col-start-1">
-                      <label
-                        htmlFor="city"
-                        className="block text-sm font-medium leading-6 text-gray-900"
-                      >
-                        City
-                      </label>
-                      <div className="mt-2">
-                        <input
-                          type="text"
-                          {...register('city', {
-                            required: 'city is required',
-                          })}
-                          id="city"
-                          autoComplete="address-level2"
-                          className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                        />
-                        {errors.city && (
-                          <p className="text-red-500">{errors.city.message}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label
-                        htmlFor="state"
-                        className="block text-sm font-medium leading-6 text-gray-900"
-                      >
-                        State / Province
-                      </label>
-                      <div className="mt-2">
-                        <input
-                          type="text"
-                          {...register('state', {
-                            required: 'state is required',
-                          })}
-                          id="state"
-                          className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                        />
-                        {errors.state && (
-                          <p className="text-red-500">{errors.state.message}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label
-                        htmlFor="pinCode"
-                        className="block text-sm font-medium leading-6 text-gray-900"
-                      >
-                        ZIP / Postal code
-                      </label>
-                      <div className="mt-2">
-                        <input
-                          type="text"
-                          {...register('pinCode', {
-                            required: 'pinCode is required',
-                          })}
-                          id="pinCode"
-                          className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                        />
-                        {errors.pinCode && (
-                          <p className="text-red-500">
-                            {errors.pinCode.message}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-6 flex items-center justify-end gap-x-6">
+      <div className="mt-4 flex flex-col gap-4">
+        {userInfo.addresses.map((address, index) => (
+          <div key={index}>
+            {selectedEditIndex === index ? (
+              <form
+                className="rounded-card border border-line bg-surface p-[26px]"
+                noValidate
+                onSubmit={handleSubmit((data) => {
+                  handleEdit(data, index);
+                  reset();
+                })}
+              >
+                <div className="mb-4 text-[15px] font-bold text-content">Edit address</div>
+                <AddressFields register={register} errors={errors} />
+                <div className="mt-5 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEditIndex(-1)}
+                    className="rounded-[10px] px-4 py-2 text-[13.5px] font-semibold text-muted transition-colors hover:text-content"
+                  >
+                    Cancel
+                  </button>
                   <button
                     type="submit"
-                    className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                    className="rounded-[10px] bg-primary px-4 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-primary-hover"
                   >
-                    Add Address
+                    Save address
                   </button>
                 </div>
-              </div>
-            </form>
-          ) : null}
-
-          <p className="mt-0.5 text-sm text-gray-500">Your Addresses :</p>
-          {userInfo.addresses.map((address, index) => (
-            <div key={index}>
-              {selectedEditIndex === index ? (
-                <form
-                  className="bg-white px-5 py-12 mt-12"
-                  noValidate
-                  onSubmit={handleSubmit((data) => {
-                    console.log(data);
-                    handleEdit(data, index);
-                    reset();
-                  })}
+              </form>
+            ) : (
+              <div className="flex items-center gap-5 rounded-[14px] border border-line bg-surface px-6 py-5">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14.5px] font-semibold text-content">{address.name}</div>
+                  <div className="mt-1 text-[13px] leading-[1.55] text-muted">
+                    {address.street}
+                    <br />
+                    {address.city} · {address.phone}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleEditForm(index)}
+                  type="button"
+                  className="text-[13px] font-semibold text-primary-hover transition-colors hover:text-primary-light"
                 >
-                  <div className="space-y-12">
-                    <div className="border-b border-gray-900/10 pb-12">
-                      <h2 className="text-2xl font-semibold leading-7 text-gray-900">
-                        Personal Information
-                      </h2>
-                      <p className="mt-1 text-sm leading-6 text-gray-600">
-                        Use a permanent address where you can receive mail.
-                      </p>
-
-                      <div className="mt-10 grid grid-cols-1 gap-x-6 gap-y-8 sm:grid-cols-6">
-                        <div className="sm:col-span-4">
-                          <label
-                            htmlFor="name"
-                            className="block text-sm font-medium leading-6 text-gray-900"
-                          >
-                            Full name
-                          </label>
-                          <div className="mt-2">
-                            <input
-                              type="text"
-                              {...register('name', {
-                                required: 'name is required',
-                              })}
-                              id="name"
-                              className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                            />
-                            {errors.name && (
-                              <p className="text-red-500">
-                                {errors.name.message}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="sm:col-span-4">
-                          <label
-                            htmlFor="email"
-                            className="block text-sm font-medium leading-6 text-gray-900"
-                          >
-                            Email address
-                          </label>
-                          <div className="mt-2">
-                            <input
-                              id="email"
-                              {...register('email', {
-                                required: 'email is required',
-                              })}
-                              type="email"
-                              className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                            />
-                            {errors.email && (
-                              <p className="text-red-500">
-                                {errors.email.message}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="sm:col-span-3">
-                          <label
-                            htmlFor="phone"
-                            className="block text-sm font-medium leading-6 text-gray-900"
-                          >
-                            Phone
-                          </label>
-                          <div className="mt-2">
-                            <input
-                              id="phone"
-                              {...register('phone', {
-                                required: 'phone is required',
-                              })}
-                              type="tel"
-                              className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                            />
-                            {errors.phone && (
-                              <p className="text-red-500">
-                                {errors.phone.message}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="col-span-full">
-                          <label
-                            htmlFor="street-address"
-                            className="block text-sm font-medium leading-6 text-gray-900"
-                          >
-                            Street address
-                          </label>
-                          <div className="mt-2">
-                            <input
-                              type="text"
-                              {...register('street', {
-                                required: 'street is required',
-                              })}
-                              id="street"
-                              className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                            />
-                            {errors.street && (
-                              <p className="text-red-500">
-                                {errors.street.message}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="sm:col-span-2 sm:col-start-1">
-                          <label
-                            htmlFor="city"
-                            className="block text-sm font-medium leading-6 text-gray-900"
-                          >
-                            City
-                          </label>
-                          <div className="mt-2">
-                            <input
-                              type="text"
-                              {...register('city', {
-                                required: 'city is required',
-                              })}
-                              id="city"
-                              autoComplete="address-level2"
-                              className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                            />
-                            {errors.city && (
-                              <p className="text-red-500">
-                                {errors.city.message}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="sm:col-span-2">
-                          <label
-                            htmlFor="state"
-                            className="block text-sm font-medium leading-6 text-gray-900"
-                          >
-                            State / Province
-                          </label>
-                          <div className="mt-2">
-                            <input
-                              type="text"
-                              {...register('state', {
-                                required: 'state is required',
-                              })}
-                              id="state"
-                              className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                            />
-                            {errors.state && (
-                              <p className="text-red-500">
-                                {errors.state.message}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="sm:col-span-2">
-                          <label
-                            htmlFor="pinCode"
-                            className="block text-sm font-medium leading-6 text-gray-900"
-                          >
-                            ZIP / Postal code
-                          </label>
-                          <div className="mt-2">
-                            <input
-                              type="text"
-                              {...register('pinCode', {
-                                required: 'pinCode is required',
-                              })}
-                              id="pinCode"
-                              className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
-                            />
-                            {errors.pinCode && (
-                              <p className="text-red-500">
-                                {errors.pinCode.message}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-6 flex items-center justify-end gap-x-6">
-                      <button
-                        onClick={(e) => setSelectedEditIndex(-1)}
-                        type="submit"
-                        className="rounded-md px-3 py-2 text-sm font-semibold text-grey shadow-sm hover:bg-grey-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                      >
-                        Edit Address
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              ) : null}
-              <div className="flex justify-between gap-x-6 px-5 py-5 border-solid border-2 border-gray-200">
-                <div className="flex gap-x-4">
-                  <div className="min-w-0 flex-auto">
-                    <p className="text-sm font-semibold leading-6 text-gray-900">
-                      {address.name}
-                    </p>
-                    <p className="mt-1 truncate text-xs leading-5 text-gray-500">
-                      {address.street}
-                    </p>
-                    <p className="mt-1 truncate text-xs leading-5 text-gray-500">
-                      {address.pinCode}
-                    </p>
-                  </div>
-                </div>
-                <div className="hidden sm:flex sm:flex-col sm:items-end">
-                  <p className="text-sm leading-6 text-gray-900">
-                    Phone: {address.phone}
-                  </p>
-                  <p className="text-sm leading-6 text-gray-500">
-                    {address.city}
-                  </p>
-                </div>
-                <div className="hidden sm:flex sm:flex-col sm:items-end">
-                  <button
-                    onClick={(e) => handleEditForm(index)}
-                    type="button"
-                    className="font-medium text-indigo-600 hover:text-indigo-500"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={(e) => handleRemove(e, index)}
-                    type="button"
-                    className="font-medium text-indigo-600 hover:text-indigo-500"
-                  >
-                    Remove
-                  </button>
-                </div>
+                  Edit
+                </button>
+                <button
+                  onClick={(e) => handleRemove(e, index)}
+                  type="button"
+                  className="text-[13px] font-semibold text-dim transition-colors hover:text-error-text"
+                >
+                  Remove
+                </button>
               </div>
-            </div>
-          ))}
-        </div>
+            )}
+          </div>
+        ))}
       </div>
-    </div>
+    </main>
   );
 }

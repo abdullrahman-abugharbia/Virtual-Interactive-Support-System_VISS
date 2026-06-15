@@ -63,8 +63,39 @@ const SUPPORT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'show_product',
+      description:
+        "Open and show a SPECIFIC product's detail page in the store. Use this when the customer names or asks to see one particular product, e.g. \"show me the MacBook Air\", \"open the iPhone 15 Pro\", \"find the Dior Sauvage\". This navigates the store to that product's page.",
+      parameters: {
+        type: 'object',
+        properties: {
+          product_name: { type: 'string', description: 'The specific product name to open' },
+        },
+        required: ['product_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'browse_category',
+      description:
+        'Filter the products page by a CATEGORY. Use this when the customer wants to browse a TYPE of product rather than one specific item, e.g. "find me a laptop", "search for headphones", "show me smartphones", "I want a watch". This checks that category in the store filter. Available categories: smartphones, laptops, tablets, headphones, cameras, gaming, tvs, watches, fragrances, skincare.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: { type: 'string', description: 'The category / type of product to filter by (e.g. "laptops")' },
+        },
+        required: ['category'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'search_products',
-      description: 'Search for products in the store by name, brand, or category.',
+      description:
+        'Search the catalogue and list matching products in the chat. Use for vague queries, recommendations, or "what do you have" — NOT when the user wants to open one product (use show_product) or browse a category (use browse_category).',
       parameters: {
         type: 'object',
         properties: {
@@ -72,6 +103,15 @@ const SUPPORT_TOOLS = [
         },
         required: ['query'],
       },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'clear_filters',
+      description:
+        'Clear all active product filters and show the full catalogue. Use when the user asks to clear/reset filters, "show all products", "go back to all products", or "see everything".',
+      parameters: { type: 'object', properties: {}, required: [] },
     },
   },
   {
@@ -107,10 +147,10 @@ const SUPPORT_TOOLS = [
 
 async function toolSearchProducts(query) {
   const { rows } = await pool.query(
-    `SELECT title, discount_price, brand, rating, stock
+    `SELECT id, title, discount_price, brand, rating, stock
      FROM products
      WHERE (title ILIKE $1 OR brand ILIKE $1 OR category_id IN (
-       SELECT id FROM categories WHERE name ILIKE $1
+       SELECT id FROM categories WHERE value ILIKE $1 OR label ILIKE $1
      )) AND deleted = false
      ORDER BY rating DESC
      LIMIT 5`,
@@ -119,6 +159,54 @@ async function toolSearchProducts(query) {
   return rows.length
     ? { found: rows.length, products: rows }
     : { found: 0, message: `No products found matching "${query}". Try a different search term.` };
+}
+
+// Find the single best-matching product to open its detail page.
+async function toolShowProduct(productName) {
+  const term = String(productName || '').trim();
+  if (!term) return { found: false, message: 'No product name provided.' };
+
+  const { rows } = await pool.query(
+    `SELECT id, title, brand, discount_price, rating, stock
+     FROM products
+     WHERE (title ILIKE $1 OR brand ILIKE $1) AND deleted = false
+     ORDER BY (title ILIKE $2) DESC, rating DESC
+     LIMIT 1`,
+    [`%${term}%`, `${term}%`]
+  );
+  if (!rows.length) {
+    return { found: false, message: `No product matching "${term}". Try a different name.` };
+  }
+  const p = rows[0];
+  return {
+    found: true,
+    product: {
+      id: Number(p.id),
+      title: p.title,
+      brand: p.brand,
+      price: Number(p.discount_price),
+      rating: Number(p.rating),
+      inStock: p.stock > 0,
+    },
+  };
+}
+
+// Resolve a free-text category/type term to a real store category value.
+async function toolBrowseCategory(term) {
+  const t = String(term || '').trim();
+  if (!t) return { matched: false, message: 'No category provided.' };
+
+  const { rows } = await pool.query(
+    `SELECT value, label FROM categories
+     WHERE value ILIKE $1 OR label ILIKE $1
+     ORDER BY (value ILIKE $2) DESC
+     LIMIT 1`,
+    [`%${t}%`, `${t}%`]
+  );
+  if (!rows.length) {
+    return { matched: false, message: `No category matching "${t}".` };
+  }
+  return { matched: true, category: rows[0].value, label: rows[0].label };
 }
 
 async function toolAddToCart(userId, productName, quantity = 1) {
@@ -216,13 +304,211 @@ async function fetchUserContext(userId) {
   return { user, orders, cartItems };
 }
 
+const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+// If the user's message literally contains a product's full title (e.g.
+// "search for iPhone 14" contains "iPhone 14"), they named a specific product.
+async function findProductInMessage(message) {
+  const msg = String(message || '');
+  if (!msg.trim()) return null;
+  const { rows } = await pool.query(
+    `SELECT id, title FROM products
+     WHERE deleted = false AND $1 ILIKE '%' || title || '%'
+     ORDER BY length(title) DESC
+     LIMIT 1`,
+    [msg]
+  );
+  return rows[0] ? { id: Number(rows[0].id), title: rows[0].title } : null;
+}
+
+// Filler words to ignore when resolving a free-text product search.
+const SEARCH_STOPWORDS = new Set([
+  'the', 'for', 'you', 'your', 'and', 'but', 'can', 'are', 'was', 'has', 'have',
+  'with', 'want', 'wanted', 'wanna', 'find', 'show', 'search', 'need', 'get',
+  'got', 'please', 'looking', 'look', 'give', 'gimme', 'see', 'all', 'any',
+  'some', 'good', 'better', 'best', 'this', 'that', 'these', 'those', 'what',
+  'whats', 'does', 'did', 'about', 'tell', 'help', 'would', 'could', 'should',
+  'into', 'from', 'our', 'out', 'here', 'there', 'they', 'them', 'one', 'just',
+  'like', 'open', 'view', 'display', 'browse', 'recommend', 'recommendation',
+  'product', 'products', 'item', 'items', 'store', 'shop', 'available', 'something',
+]);
+
 /**
- * Streams a Groq LLM response with function-calling support.
- * Phase 1: Non-streaming call with tools to detect intent.
- * Phase 2: If tools called, execute them and stream the follow-up reply.
- *          If no tools, simulate streaming from the phase-1 text.
+ * Resolves a free-text query (the user's message) against the real catalogue:
+ *   - a single matching product   → { productId, title }   (open its page)
+ *   - a brand / category / family → { filters: { brand:[], category:[] } }
+ * "iPhone" → all products titled iPhone → brand Apple + category smartphones.
+ */
+async function resolveSearchFromMessage(message) {
+  const words = (String(message || '').toLowerCase().match(/[a-z0-9]+/g) || [])
+    .filter((w) => w.length >= 3 && !SEARCH_STOPWORDS.has(w));
+  if (!words.length) return null;
+
+  // Expand each word with simple singular/plural variants so "iPhones" matches
+  // products titled "iPhone", "watches" matches "watch", etc.
+  const variantSet = new Set();
+  for (const w of words) {
+    variantSet.add(w);
+    if (w.length > 3 && w.endsWith('es')) variantSet.add(w.slice(0, -2));
+    if (w.length > 3 && w.endsWith('s')) variantSet.add(w.slice(0, -1));
+    variantSet.add(`${w}s`);
+  }
+  const variants = [...variantSet];
+  const likeParams = variants.map((w) => `%${w}%`);
+
+  // Word is exactly a brand (e.g. "apple", "sony", "dell").
+  const { rows: brandRows } = await pool.query(
+    `SELECT DISTINCT brand FROM products WHERE deleted = false AND lower(brand) = ANY($1::text[])`,
+    [variants]
+  );
+
+  // Word appears in a category value/label (e.g. "laptop" → laptops, "phone" → smartphones).
+  const catWhere = variants.map((_, i) => `value ILIKE $${i + 1} OR label ILIKE $${i + 1}`).join(' OR ');
+  const { rows: catRows } = await pool.query(`SELECT value FROM categories WHERE ${catWhere}`, likeParams);
+
+  // Word appears in a product title (e.g. "iPhone", "Galaxy", "MacBook").
+  const titleWhere = variants.map((_, i) => `p.title ILIKE $${i + 1}`).join(' OR ');
+  const { rows: titleRows } = await pool.query(
+    `SELECT p.id, p.title, p.brand, c.value AS category_value
+     FROM products p LEFT JOIN categories c ON c.id = p.category_id
+     WHERE p.deleted = false AND (${titleWhere})`,
+    likeParams
+  );
+
+  // A single specific product (and no brand/category term) → open its page.
+  if (titleRows.length === 1 && !brandRows.length && !catRows.length) {
+    return { productId: Number(titleRows[0].id), title: titleRows[0].title };
+  }
+
+  const brandSet = new Set(brandRows.map((r) => r.brand));
+  const catSet = new Set(catRows.map((r) => r.value));
+
+  // Family inference: only when the term isn't itself a brand/category, derive
+  // the brand + category from the products whose titles match (e.g. "iPhone").
+  if (!brandSet.size && !catSet.size && titleRows.length) {
+    for (const r of titleRows) {
+      if (r.brand) brandSet.add(r.brand);
+      if (r.category_value) catSet.add(r.category_value);
+    }
+  }
+
+  if (brandSet.size || catSet.size) {
+    return { filters: { brand: [...brandSet], category: [...catSet] } };
+  }
+  return null;
+}
+
+// Execute a single tool by name and emit any frontend action it triggers.
+async function runTool(name, args, session, onChunk, userMessage) {
+  // Deterministic override: for any search/browse/show request that names a
+  // specific product, always open that product's page — regardless of which
+  // tool the model picked. (Cart tools are intentionally excluded.)
+  if (name === 'show_product' || name === 'browse_category' || name === 'search_products') {
+    const named = await findProductInMessage(userMessage);
+    if (named) {
+      onChunk('', { action: 'show_product', productId: named.id, title: named.title });
+      return { opened_product: named.title, note: 'Opened the specific product page the user named.' };
+    }
+  }
+
+  if (name === 'show_product') {
+    const result = await toolShowProduct(args.product_name || args.query || '');
+    if (result?.found) {
+      onChunk('', { action: 'show_product', productId: result.product.id, title: result.product.title });
+    }
+    return result;
+  }
+  if (name === 'browse_category') {
+    const result = await toolBrowseCategory(args.category || args.query || '');
+    if (result?.matched) {
+      onChunk('', { action: 'apply_filters', category: [result.category], brand: [] });
+    }
+    return result;
+  }
+  if (name === 'search_products') {
+    return toolSearchProducts(args.query || '');
+  }
+  if (name === 'clear_filters') {
+    onChunk('', { action: 'apply_filters', category: [], brand: [] });
+    return { cleared: true };
+  }
+  if (name === 'add_to_cart') {
+    const result = await toolAddToCart(session?.user_id, args.product_name || '', args.quantity || 1);
+    if (result?.success) onChunk('', { action: 'cart_updated', tool: name, result });
+    return result;
+  }
+  if (name === 'remove_from_cart') {
+    const result = await toolRemoveFromCart(session?.user_id, args.product_name || '');
+    if (result?.success) onChunk('', { action: 'cart_updated', tool: name, result });
+    return result;
+  }
+  return { error: 'Unknown tool' };
+}
+
+// Some models emit tool calls as plain text (e.g. <function>name({...})</function>)
+// instead of using the native tool-call API. Detect those, run them as a fallback,
+// and strip them so they never leak into the chat.
+async function handleLeakedToolCalls(text, session, onChunk, userMessage) {
+  if (!text || text.indexOf('<') === -1) return text;
+  let cleaned = text;
+
+  // Tolerant match for every leaked form:
+  //   <function>name({...})</function>, <function=name>{...}</function>,
+  //   and the malformed <function=name{...}</function> (no closing '>').
+  const blockRe = /<function\b([\s\S]*?)<\/function>/gi;
+  const blocks = [];
+  let m;
+  while ((m = blockRe.exec(text)) !== null) blocks.push(m);
+  for (const block of blocks) {
+    const inner = block[1] || '';
+    const nameFromAttr = inner.match(/=\s*"?([a-zA-Z_]+)/);
+    const nameFromCall = inner.match(/([a-zA-Z_]+)\s*\(/);
+    const name = (nameFromAttr && nameFromAttr[1]) || (nameFromCall && nameFromCall[1]) || null;
+    const jsonMatch = inner.match(/\{[\s\S]*\}/);
+    let args = {};
+    if (jsonMatch) { try { args = JSON.parse(jsonMatch[0]); } catch { args = {}; } }
+    if (name) {
+      try { await runTool(name, args, session, onChunk, userMessage); } catch { /* ignore */ }
+    }
+    cleaned = cleaned.replace(block[0], '');
+  }
+
+  // <tool_call>{"name":"...","arguments":{...}}</tool_call>
+  const tcRe = /<tool_call>([\s\S]*?)<\/tool_call>/gi;
+  const tcs = [];
+  while ((m = tcRe.exec(text)) !== null) tcs.push(m);
+  for (const tc of tcs) {
+    try {
+      const obj = JSON.parse(tc[1].trim());
+      const name = obj.name;
+      const args = obj.arguments || obj.parameters || {};
+      if (name) await runTool(name, args, session, onChunk, userMessage);
+    } catch { /* ignore */ }
+    cleaned = cleaned.replace(tc[0], '');
+  }
+
+  return cleaned;
+}
+
+// Strip any residual tool-call markup / special tokens from the visible reply.
+function sanitizeReply(text) {
+  return (text || '')
+    .replace(/<function\b[\s\S]*?<\/function>/gi, '')
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+    .replace(/<\/?function[^>]*>/gi, '')
+    .replace(/<\|[a-z_]+\|>/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Drives the Groq agent with an iterative tool-calling loop: tools are available
+ * on every round and executed as requested, until the model returns a final text
+ * answer (or a safety cap is hit). The final answer is sanitized — any leaked
+ * text tool-calls are executed and stripped — then streamed to the client.
  *
- * onChunk(text, meta?) — text delta for UI; meta = { action, result } for side-effects.
+ * onChunk(text, meta?) — text delta for UI; meta = { action, ... } for side-effects.
  */
 async function streamGroqResponse(sessionId, userMessage, onChunk) {
   if (!env.groqApiKey) {
@@ -238,117 +524,142 @@ async function streamGroqResponse(sessionId, userMessage, onChunk) {
     content: m.content,
   }));
 
-  const systemMessages = [
+  const messages = [
     { role: 'system', content: buildSystemPrompt(userContext) },
     ...contextMessages,
     { role: 'user', content: userMessage },
   ];
 
-  // ── Phase 1: Detect tool calls (non-streaming) ───────────────────────────
-  const phase1 = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.groqApiKey}` },
-    body: JSON.stringify({
-      model: env.groqModel,
-      messages: systemMessages,
-      tools: SUPPORT_TOOLS,
-      tool_choice: 'auto',
-      max_tokens: 300,
-      temperature: 0.7,
-    }),
-  });
+  // Lock to the FIRST navigation/filter action per turn so the deterministic
+  // resolver wins and the model can never override it with a second guess.
+  let navLocked = false;
+  const NAV_ACTIONS = new Set(['show_product', 'apply_filters', 'filter_category']);
+  const emit = (delta, meta) => {
+    if (meta && NAV_ACTIONS.has(meta.action)) {
+      if (navLocked) return;
+      navLocked = true;
+    }
+    onChunk(delta, meta);
+  };
 
-  if (!phase1.ok) {
-    const err = await phase1.text();
-    throw new ApiError(502, `Groq API error: ${err}`);
+  // Deterministic navigation/filtering from the user's message — works every
+  // time, independent of the model's (sometimes wrong) tool choice.
+  const CLEAR_INTENT = /\b(clear|reset)\b[\w\s'-]*\b(filter|filters|all)\b|\bremove\b[\w\s'-]*\bfilters?\b|\ball products\b|\ball items\b|\bshow everything\b|\bsee everything\b|\bgo back to all\b|\bno filters?\b/i;
+  const CART_INTENT = /\b(add|cart|buy|buying|bought|purchase|checkout|order|remove|delete|drop)\b/i;
+
+  if (CLEAR_INTENT.test(userMessage)) {
+    // "clear filters" / "show all products" / "go back to all products"
+    emit('', { action: 'apply_filters', category: [], brand: [] });
+    messages.push({
+      role: 'system',
+      content: '(All store filters have been cleared — the full product list is now shown. Confirm briefly in one sentence. Do NOT call navigation tools.)',
+    });
+  } else if (!CART_INTENT.test(userMessage)) {
+    const named = await findProductInMessage(userMessage);
+    if (named) {
+      emit('', { action: 'show_product', productId: named.id, title: named.title });
+      messages.push({
+        role: 'system',
+        content: `(The "${named.title}" product page is now open for the customer. Confirm briefly and answer any question about it. Do NOT call navigation tools.)`,
+      });
+    } else {
+      const resolved = await resolveSearchFromMessage(userMessage);
+      if (resolved?.productId) {
+        emit('', { action: 'show_product', productId: resolved.productId, title: resolved.title });
+        messages.push({
+          role: 'system',
+          content: `(The "${resolved.title}" product page is now open for the customer. Confirm briefly. Do NOT call navigation tools.)`,
+        });
+      } else if (resolved?.filters && (resolved.filters.brand.length || resolved.filters.category.length)) {
+        emit('', { action: 'apply_filters', category: resolved.filters.category, brand: resolved.filters.brand });
+        const parts = [];
+        if (resolved.filters.brand.length) parts.push(`brand: ${resolved.filters.brand.join(', ')}`);
+        if (resolved.filters.category.length) parts.push(`category: ${resolved.filters.category.join(', ')}`);
+        messages.push({
+          role: 'system',
+          content: `(The store is now filtered (${parts.join('; ')}) to show the customer what they asked for. Confirm briefly in one sentence. Do NOT call navigation tools.)`,
+        });
+      }
+    }
   }
 
-  const phase1Data = await phase1.json();
-  const choice = phase1Data.choices?.[0];
+  const callGroq = async (attempt = 0) => {
+    const res = await fetch(GROQ_CHAT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.groqApiKey}` },
+      body: JSON.stringify({
+        model: env.groqModel,
+        messages,
+        tools: SUPPORT_TOOLS,
+        tool_choice: 'auto',
+        max_tokens: 400,
+        temperature: 0.6,
+      }),
+    });
+    if (res.ok) return res.json();
 
-  // ── No tool call — simulate streaming from the text response ─────────────
-  if (choice?.finish_reason !== 'tool_calls') {
-    const text = choice?.message?.content || '';
-    for (const char of text) {
-      onChunk(char);
+    const errText = await res.text();
+    let errObj = null;
+    try { errObj = JSON.parse(errText); } catch { errObj = null; }
+    const code = errObj?.error?.code;
+
+    // The model emitted a malformed native tool call → recover by treating the
+    // attempted generation as text, so handleLeakedToolCalls can run it.
+    if (code === 'tool_use_failed' && errObj.error.failed_generation) {
+      return {
+        choices: [
+          { finish_reason: 'stop', message: { role: 'assistant', content: errObj.error.failed_generation } },
+        ],
+      };
     }
+
+    // Transient rate limit → wait the suggested time and retry once or twice.
+    if (code === 'rate_limit_exceeded' && attempt < 2) {
+      const wm = /try again in ([0-9.]+)s/.exec(errObj?.error?.message || '');
+      const waitMs = wm ? Math.ceil(parseFloat(wm[1]) * 1000) + 200 : 1200;
+      await new Promise((r) => setTimeout(r, waitMs));
+      return callGroq(attempt + 1);
+    }
+
+    throw new ApiError(502, `Groq API error: ${errText}`);
+  };
+
+  const MAX_ROUNDS = 4;
+
+  for (let round = 0; round < MAX_ROUNDS; round += 1) {
+    const data = await callGroq();
+    const choice = data.choices?.[0];
+    const message = choice?.message || {};
+
+    // Native tool calls → execute, append results, loop again.
+    if (
+      choice?.finish_reason === 'tool_calls' &&
+      Array.isArray(message.tool_calls) &&
+      message.tool_calls.length
+    ) {
+      messages.push(message);
+      for (const call of message.tool_calls) {
+        let args;
+        try { args = JSON.parse(call.function.arguments); } catch { args = {}; }
+        const result = await runTool(call.function.name, args, session, emit, userMessage);
+        messages.push({ tool_call_id: call.id, role: 'tool', content: JSON.stringify(result) });
+      }
+      continue;
+    }
+
+    // Final answer — run any leaked text tool-calls, sanitize, then stream.
+    let text = message.content || '';
+    text = await handleLeakedToolCalls(text, session, emit, userMessage);
+    text = sanitizeReply(text);
+    if (!text) text = 'Done! Is there anything else I can help you with?';
+    for (const char of text) onChunk(char);
     return text;
   }
 
-  // ── Tool calls detected — execute each tool ───────────────────────────────
-  const toolCalls    = choice.message.tool_calls || [];
-  const toolMessages = [];
-
-  for (const call of toolCalls) {
-    let args;
-    try { args = JSON.parse(call.function.arguments); } catch { args = {}; }
-
-    let result;
-    if (call.function.name === 'search_products') {
-      result = await toolSearchProducts(args.query || '');
-    } else if (call.function.name === 'add_to_cart') {
-      result = await toolAddToCart(session.user_id, args.product_name || '', args.quantity || 1);
-    } else if (call.function.name === 'remove_from_cart') {
-      result = await toolRemoveFromCart(session.user_id, args.product_name || '');
-    } else {
-      result = { error: 'Unknown tool' };
-    }
-
-    // Notify frontend of cart changes via meta
-    if (result?.success && (call.function.name === 'add_to_cart' || call.function.name === 'remove_from_cart')) {
-      onChunk('', { action: 'cart_updated', tool: call.function.name, result });
-    }
-
-    toolMessages.push({
-      tool_call_id: call.id,
-      role: 'tool',
-      content: JSON.stringify(result),
-    });
-  }
-
-  // ── Phase 2: Stream the follow-up reply with tool results in context ──────
-  const phase2Messages = [
-    ...systemMessages,
-    choice.message,   // assistant turn with tool_calls
-    ...toolMessages,  // tool results
-  ];
-
-  const phase2 = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.groqApiKey}` },
-    body: JSON.stringify({
-      model: env.groqModel,
-      messages: phase2Messages,
-      stream: true,
-      max_tokens: 300,
-      temperature: 0.7,
-    }),
-  });
-
-  if (!phase2.ok) {
-    const err = await phase2.text();
-    throw new ApiError(502, `Groq API error (phase 2): ${err}`);
-  }
-
-  let fullReply = '';
-  const decoder = new TextDecoder();
-
-  for await (const chunk of phase2.body) {
-    const text = decoder.decode(chunk, { stream: true });
-    const lines = text.split('\n').filter((l) => l.startsWith('data: '));
-
-    for (const line of lines) {
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') break;
-      try {
-        const parsed = JSON.parse(data);
-        const delta  = parsed.choices?.[0]?.delta?.content;
-        if (delta) { fullReply += delta; onChunk(delta); }
-      } catch { /* skip malformed SSE lines */ }
-    }
-  }
-
-  return fullReply;
+  // Safety cap reached.
+  const fallback = "I've taken care of that. Is there anything else I can help you with?";
+  for (const char of fallback) onChunk(char);
+  return fallback;
 }
 
 /**

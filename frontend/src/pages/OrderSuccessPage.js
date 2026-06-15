@@ -1,47 +1,52 @@
 import { useEffect } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { resetCartAsync } from "../features/cart/cartSlice";
-import { useDispatch, useSelector } from "react-redux";
-import { selectLoggedInUser } from "../features/auth/authSlice";
+import { useDispatch } from "react-redux";
 import { resetOrder } from "../features/order/orderSlice";
+import NavBar from "../features/navbar/Navbar";
 
 function OrderSuccessPage() {
-   const params = useParams() 
-   const dispatch = useDispatch();
-   
-   useEffect(()=>{
-    // reset cart
-    dispatch(resetCartAsync())
-    // reset currentOrder
-    dispatch(resetOrder())
-   },[dispatch])
- 
+  const params = useParams();
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    dispatch(resetCartAsync());
+    dispatch(resetOrder());
+  }, [dispatch]);
+
   return (
-    <>
-    {!params.id && <Navigate to='/' replace ={true}></Navigate> }
-    <main className="grid min-h-full place-items-center bg-white px-6 py-24 sm:py-32 lg:px-8">
-        <div className="text-center">
-          <p className="text-base font-semibold text-indigo-600">Order Successfully Placed</p>
-          <h1 className="mt-4 text-3xl font-bold tracking-tight text-gray-900 sm:text-5xl">
-          Order Number #{params?.id}
-          </h1>
-          <p className="mt-6 text-base leading-7 text-gray-600">
-         You can check your account.
-          </p>
-          <div className="mt-10 flex items-center justify-center gap-x-6">
-            <Link
-              to="/"
-              className="rounded-md bg-indigo-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-            >
-              Go back home
-            </Link>
-           
-          </div>
+    <NavBar>
+      {!params.id && <Navigate to="/" replace={true}></Navigate>}
+      <main className="mx-auto max-w-[560px] px-10 py-28 text-center">
+        <div className="mx-auto flex h-[76px] w-[76px] items-center justify-center rounded-full border-2 border-success/45 bg-success/10 text-[32px] font-bold text-success-text">
+          ✓
+        </div>
+        <h1 className="mt-7 text-[30px] font-bold tracking-[-0.02em] text-content">
+          Order placed
+        </h1>
+        <p className="mt-3 text-sm leading-relaxed text-muted">
+          Thanks! Your order{' '}
+          <span className="font-mono text-primary-lighter">#{params?.id}</span> is confirmed.
+          <br />
+          You can track its status anytime from My Orders.
+        </p>
+        <div className="mt-8 flex justify-center gap-3.5">
+          <Link
+            to="/my-orders"
+            className="rounded-[11px] bg-primary px-[22px] py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
+          >
+            View my orders
+          </Link>
+          <Link
+            to="/"
+            className="rounded-[11px] border border-line bg-surface px-[22px] py-3 text-sm font-semibold text-[#CBD5E1] transition-colors hover:border-[#475569] hover:text-content"
+          >
+            Continue shopping
+          </Link>
         </div>
       </main>
-      </>
-    );
+    </NavBar>
+  );
 }
 
 export default OrderSuccessPage;
- 

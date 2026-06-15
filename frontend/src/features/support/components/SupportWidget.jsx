@@ -28,49 +28,42 @@ export default function SupportWidget() {
 
   return (
     <>
-      {/* Floating button */}
-      <div className="fixed bottom-6 left-6 z-40 flex flex-col items-start gap-2">
-        {/* Tooltip */}
-        {showTooltip && !isOpen && (
-          <div className="bg-gray-900 text-white text-sm px-4 py-2 rounded-xl shadow-lg max-w-[200px] text-center animate-fade-in">
-            👋 Need help? Ask me anything!
-            <button
-              onClick={() => { setShowTooltip(false); localStorage.setItem('support_tooltip_seen', '1'); }}
-              className="ml-2 text-gray-400 hover:text-white text-xs"
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* FAB */}
-        <button
-          type="button"
-          onClick={isOpen ? handleClose : handleOpen}
-          className={`
-            w-14 h-14 rounded-full shadow-xl flex items-center justify-center
-            transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-400
-            ${isOpen
-              ? 'bg-gray-700 hover:bg-gray-800 rotate-0'
-              : 'bg-indigo-600 hover:bg-indigo-700'}
-          `}
-          aria-label={isOpen ? 'Close support chat' : 'Open support chat'}
-        >
-          {isOpen ? (
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          ) : (
-            <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z" />
-            </svg>
-          )}
-        </button>
-      </div>
-
-      {/* Modal */}
+      {/* Modal panel (opens above the FAB) */}
       {isOpen && <SupportModal />}
+
+      {/* Onboarding tooltip */}
+      {showTooltip && !isOpen && (
+        <div className="fixed bottom-[100px] right-7 z-[150] max-w-[220px] animate-fade-up rounded-card border border-line-aria bg-surface px-4 py-2.5 text-sm text-content shadow-aria">
+          <span className="text-primary-light">✦</span> Hi, I'm Aria! Need help? Ask me anything.
+          <button
+            onClick={() => {
+              setShowTooltip(false);
+              localStorage.setItem('support_tooltip_seen', '1');
+            }}
+            className="ml-2 text-dim transition-colors hover:text-content"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* FAB */}
+      <button
+        type="button"
+        onClick={isOpen ? handleClose : handleOpen}
+        className="fixed bottom-7 right-7 z-[150] flex h-[58px] w-[58px] items-center justify-center rounded-full bg-logo-gradient text-white shadow-fab transition-transform duration-200 hover:scale-[1.06] focus:outline-none"
+        aria-label={isOpen ? 'Close support chat' : 'Open support chat'}
+      >
+        {!isOpen && (
+          <span className="absolute inset-0 rounded-full border-[1.5px] border-primary-hover/55 animate-ring-fab" />
+        )}
+        {isOpen ? (
+          <span className="text-[18px] leading-none">✕</span>
+        ) : (
+          <span className="text-[22px] leading-none">✦</span>
+        )}
+      </button>
     </>
   );
 }

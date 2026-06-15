@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { createSession, fetchSession, closeSession, sendMessageStream } from './supportAPI';
 import { fetchItemsByUserIdAsync } from '../cart/cartSlice';
+import { router } from '../../app/router';
 
 // ─── Thunks ────────────────────────────────────────────────────────────────
 
@@ -76,7 +77,25 @@ export const sendMessageAsync = createAsyncThunk(
             const parsed = JSON.parse(data);
             if (parsed.delta) dispatch(addStreamingChunk(parsed.delta));
             if (parsed.error) throw new Error(parsed.error);
-            if (parsed.action === 'cart_updated') dispatch(fetchItemsByUserIdAsync());
+            if (parsed.action === 'cart_updated') {
+              dispatch(fetchItemsByUserIdAsync());
+            } else if (parsed.action === 'show_product' && parsed.productId) {
+              // Aria found a specific product → open its detail page
+              router.navigate(`/product-detail/${parsed.productId}`);
+            } else if (parsed.action === 'apply_filters') {
+              // Aria resolved a brand/category search → check those filters
+              dispatch(
+                setRequestedFilters({
+                  category: parsed.category || [],
+                  brand: parsed.brand || [],
+                })
+              );
+              router.navigate('/');
+            } else if (parsed.action === 'filter_category' && parsed.category) {
+              // Backward-compat: single category
+              dispatch(setRequestedFilters({ category: [parsed.category], brand: [] }));
+              router.navigate('/');
+            }
           } catch {
             // skip malformed lines
           }
@@ -103,6 +122,7 @@ const initialState = {
   isOpen: false,
   isLoading: false,
   error: null,
+  requestedFilters: null, // { category: [], brand: [] } Aria asked the listing to apply
 };
 
 const supportSlice = createSlice({
@@ -152,6 +172,13 @@ const supportSlice = createSlice({
       state.isStreaming = false;
       state.avatarState = 'idle';
       state.error = null;
+      state.requestedFilters = null;
+    },
+    setRequestedFilters(state, action) {
+      state.requestedFilters = action.payload;
+    },
+    clearRequestedFilters(state) {
+      state.requestedFilters = null;
     },
   },
   extraReducers: (builder) => {
@@ -197,6 +224,8 @@ export const {
   addStreamingChunk,
   finalizeStreamingMessage,
   resetSession,
+  setRequestedFilters,
+  clearRequestedFilters,
 } = supportSlice.actions;
 
 // Selectors
@@ -208,5 +237,6 @@ export const selectIsStreaming = (state) => state.support.isStreaming;
 export const selectAvatarState = (state) => state.support.avatarState;
 export const selectSupportLoading = (state) => state.support.isLoading;
 export const selectSupportError = (state) => state.support.error;
+export const selectRequestedFilters = (state) => state.support.requestedFilters;
 
 export default supportSlice.reducer;
