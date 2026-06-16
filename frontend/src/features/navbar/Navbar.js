@@ -1,11 +1,12 @@
-import { Fragment } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { Disclosure, Menu, Transition } from '@headlessui/react';
 import {
   Bars3Icon,
   ShoppingCartIcon,
   XMarkIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { selectItems } from '../cart/cartSlice';
 import { selectUserInfo } from '../user/userSlice';
@@ -36,8 +37,35 @@ function NavBar({ children }) {
   const items = useSelector(selectItems);
   const userInfo = useSelector(selectUserInfo);
   const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState(searchParams.get('q') || '');
+
+  // Keep the box in sync when the URL search term changes (e.g. Aria searches).
+  useEffect(() => {
+    setQuery(searchParams.get('q') || '');
+  }, [searchParams]);
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    const term = query.trim();
+    navigate(term ? `/?q=${encodeURIComponent(term)}` : '/');
+  };
 
   if (!userInfo) return <>{children}</>;
+
+  const searchBox = (extra = '') => (
+    <div className={`relative ${extra}`}>
+      <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-dim" />
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search products…"
+        className="w-full rounded-full border border-line bg-surface py-2 pl-9 pr-4 text-sm text-content outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary-soft"
+      />
+    </div>
+  );
 
   return (
     <div className="min-h-full bg-background">
@@ -79,7 +107,10 @@ function NavBar({ children }) {
                   )}
                 </div>
 
-                <div className="flex-1" />
+                {/* Search */}
+                <form onSubmit={handleSearch} className="hidden flex-1 justify-center px-6 md:flex">
+                  {searchBox('w-full max-w-md')}
+                </form>
 
                 {/* Right cluster */}
                 <div className="hidden items-center gap-[18px] md:flex">
@@ -149,6 +180,9 @@ function NavBar({ children }) {
 
             {/* Mobile panel */}
             <Disclosure.Panel className="border-t border-line-subtle md:hidden">
+              <form onSubmit={handleSearch} className="px-4 pt-3">
+                {searchBox('w-full')}
+              </form>
               <div className="space-y-1 px-4 pb-3 pt-3">
                 {navigation.map((item) =>
                   item[userInfo.role] ? (

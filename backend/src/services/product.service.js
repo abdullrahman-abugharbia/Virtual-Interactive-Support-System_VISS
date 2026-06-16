@@ -55,6 +55,7 @@ async function getProducts(query) {
 
   const sort = parseSort(query._sort);
   const order = String(query._order || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+  const search = String(query.q || query.search || '').trim();
 
   return productModel.listProducts({
     categories,
@@ -64,6 +65,7 @@ async function getProducts(query) {
     order,
     limit,
     offset,
+    search,
   });
 }
 

@@ -12,7 +12,7 @@ import {
 } from '../productSlice';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon, FunnelIcon } from '@heroicons/react/24/outline';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ITEMS_PER_PAGE } from '../../../app/constants';
 import Pagination from '../../common/Pagination';
 import { Grid } from 'react-loader-spinner';
@@ -40,6 +40,8 @@ export default function ProductList() {
   const cartItems = useSelector(selectItems);
   const requestedFilters = useSelector(selectRequestedFilters);
   const alert = useAlert();
+  const [searchParams] = useSearchParams();
+  const search = (searchParams.get('q') || '').trim();
   const filters = [
     {
       id: 'category',
@@ -107,12 +109,12 @@ export default function ProductList() {
 
   useEffect(() => {
     const pagination = { _page: page, _limit: ITEMS_PER_PAGE };
-    dispatch(fetchProductsByFiltersAsync({ filter, sort, pagination }));
-  }, [dispatch, filter, sort, page]);
+    dispatch(fetchProductsByFiltersAsync({ filter, sort, pagination, search }));
+  }, [dispatch, filter, sort, page, search]);
 
   useEffect(() => {
     setPage(1);
-  }, [totalItems, sort]);
+  }, [totalItems, sort, search]);
 
   useEffect(() => {
     dispatch(fetchBrandsAsync());
@@ -163,10 +165,22 @@ export default function ProductList() {
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div>
             <h1 className="text-[30px] font-bold tracking-[-0.02em] text-content">
-              All Products
+              {search ? 'Search results' : 'All Products'}
             </h1>
             <p className="mt-2 text-sm text-muted">
-              {totalItems} {totalItems === 1 ? 'product' : 'products'}
+              {search ? (
+                <>
+                  {totalItems} {totalItems === 1 ? 'result' : 'results'} for{' '}
+                  <span className="text-content">“{search}”</span>{' '}
+                  <Link to="/" className="ml-1 text-primary-hover transition-colors hover:text-primary-light">
+                    · Clear
+                  </Link>
+                </>
+              ) : (
+                <>
+                  {totalItems} {totalItems === 1 ? 'product' : 'products'}
+                </>
+              )}
             </p>
           </div>
 

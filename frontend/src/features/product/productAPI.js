@@ -34,7 +34,7 @@ export function updateProduct(update) {
   });
 }
 
-export function fetchProductsByFilters(filter, sort, pagination, admin) {
+export function fetchProductsByFilters(filter, sort, pagination, admin, search) {
   let queryString = '';
   for (let key in filter) {
     const categoryValues = filter[key];
@@ -47,6 +47,9 @@ export function fetchProductsByFilters(filter, sort, pagination, admin) {
   }
   for (let key in pagination) {
     queryString += `${key}=${pagination[key]}&`;
+  }
+  if (search) {
+    queryString += `q=${encodeURIComponent(search)}&`;
   }
   if (admin) {
     queryString += `admin=true`;

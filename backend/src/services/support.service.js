@@ -117,6 +117,21 @@ const SUPPORT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'search_site',
+      description:
+        'Run the website product search for a free-text query and show the results page to the customer. Use for product searches that are NOT one specific product (show_product) or a clear single category/brand (browse_category) — e.g. "search for a wireless charger", "find something for gaming", "anything waterproof".',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search keywords to look up' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_to_cart',
       description: 'Add a product to the authenticated user\'s cart. Only available for logged-in users.',
       parameters: {
@@ -432,6 +447,11 @@ async function runTool(name, args, session, onChunk, userMessage) {
     onChunk('', { action: 'apply_filters', category: [], brand: [] });
     return { cleared: true };
   }
+  if (name === 'search_site') {
+    const q = (args.query || args.term || args.search || '').trim();
+    onChunk('', { action: 'search', query: q });
+    return toolSearchProducts(q);
+  }
   if (name === 'add_to_cart') {
     const result = await toolAddToCart(session?.user_id, args.product_name || '', args.quantity || 1);
     if (result?.success) onChunk('', { action: 'cart_updated', tool: name, result });
@@ -533,7 +553,7 @@ async function streamGroqResponse(sessionId, userMessage, onChunk) {
   // Lock to the FIRST navigation/filter action per turn so the deterministic
   // resolver wins and the model can never override it with a second guess.
   let navLocked = false;
-  const NAV_ACTIONS = new Set(['show_product', 'apply_filters', 'filter_category']);
+  const NAV_ACTIONS = new Set(['show_product', 'apply_filters', 'filter_category', 'search']);
   const emit = (delta, meta) => {
     if (meta && NAV_ACTIONS.has(meta.action)) {
       if (navLocked) return;

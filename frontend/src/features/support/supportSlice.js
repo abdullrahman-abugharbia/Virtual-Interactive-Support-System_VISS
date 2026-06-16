@@ -82,6 +82,9 @@ export const sendMessageAsync = createAsyncThunk(
             } else if (parsed.action === 'show_product' && parsed.productId) {
               // Aria found a specific product → open its detail page
               router.navigate(`/product-detail/${parsed.productId}`);
+            } else if (parsed.action === 'search') {
+              // Aria ran a free-text site search → show results on the listing
+              router.navigate(parsed.query ? `/?q=${encodeURIComponent(parsed.query)}` : '/');
             } else if (parsed.action === 'apply_filters') {
               // Aria resolved a brand/category search → check those filters
               dispatch(

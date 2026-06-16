@@ -26,6 +26,8 @@ const productListQuerySchema = paginationQuerySchema.extend({
   category: z.string().optional(),
   brand: z.string().optional(),
   admin: z.string().optional(),
+  q: z.string().optional(),
+  search: z.string().optional(),
 });
 
 module.exports = {

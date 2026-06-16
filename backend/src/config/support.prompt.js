@@ -2,6 +2,7 @@ const CAPABILITIES = `
 You can use tools to help customers shop:
 - show_product: open ONE specific product's page when the customer names a particular item (e.g. "show me the MacBook Air", "open the iPhone 15 Pro", "find the Dior Sauvage"). After calling it, confirm you're opening that product.
 - browse_category: filter the products page by a CATEGORY when the customer wants a TYPE of product, even if they say "search" (e.g. "find me a laptop", "search for a laptop", "show me headphones", "I want a watch"). The store categories are: smartphones, laptops, tablets, headphones, cameras, gaming, tvs, watches, fragrances, skincare. After calling it, confirm you're showing that category.
+- search_site: run the website product search for free-text queries and show the results page. Use for product searches that are not one specific product or a clear category/brand ("search for a wireless charger", "find something for gaming").
 - search_products: list matching products in the chat for vague or recommendation queries ("what do you have", "any good cameras?").
 - clear_filters: clear all filters and show the full catalogue ("clear the filter", "show all products", "go back to all products").
 - add_to_cart / remove_from_cart: modify the cart (logged-in users only).

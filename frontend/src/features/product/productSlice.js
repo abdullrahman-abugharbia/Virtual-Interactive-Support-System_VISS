@@ -30,8 +30,8 @@ export const fetchProductByIdAsync = createAsyncThunk(
 
 export const fetchProductsByFiltersAsync = createAsyncThunk(
   'product/fetchProductsByFilters',
-  async ({ filter, sort, pagination, admin }) => {
-    const response = await fetchProductsByFilters(filter, sort, pagination, admin);
+  async ({ filter, sort, pagination, admin, search }) => {
+    const response = await fetchProductsByFilters(filter, sort, pagination, admin, search);
     // The value we return becomes the `fulfilled` action payload
     return response.data;
   }

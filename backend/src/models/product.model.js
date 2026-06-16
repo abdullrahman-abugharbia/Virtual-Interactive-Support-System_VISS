@@ -209,6 +209,7 @@ async function listProducts({
   order = 'ASC',
   limit = 12,
   offset = 0,
+  search = '',
 }) {
   const filters = [];
   const params = [];
@@ -226,6 +227,20 @@ async function listProducts({
   if (brands.length) {
     filters.push(`p.brand = ANY($${idx++}::text[])`);
     params.push(brands);
+  }
+
+  // Free-text search: every token must appear in the product name, brand, or
+  // category. Description is intentionally excluded — matching it returns noise
+  // (e.g. phones mentioning "camera" in their description for a "camera" search).
+  if (search) {
+    const tokens = String(search).split(/\s+/).filter(Boolean);
+    for (const token of tokens) {
+      filters.push(
+        `(p.title ILIKE $${idx} OR p.brand ILIKE $${idx} OR c.value ILIKE $${idx} OR c.label ILIKE $${idx})`
+      );
+      params.push(`%${token}%`);
+      idx += 1;
+    }
   }
 
   const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
