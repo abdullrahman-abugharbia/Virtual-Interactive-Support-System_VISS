@@ -30,8 +30,8 @@ export const fetchProductByIdAsync = createAsyncThunk(
 
 export const fetchProductsByFiltersAsync = createAsyncThunk(
   'product/fetchProductsByFilters',
-  async ({ filter, sort, pagination, admin, search }) => {
-    const response = await fetchProductsByFilters(filter, sort, pagination, admin, search);
+  async ({ filter, sort, pagination, admin, search, minPrice, maxPrice }) => {
+    const response = await fetchProductsByFilters(filter, sort, pagination, admin, search, minPrice, maxPrice);
     // The value we return becomes the `fulfilled` action payload
     return response.data;
   }
@@ -85,8 +85,15 @@ export const productSlice = createSlice({
       })
       .addCase(fetchProductsByFiltersAsync.fulfilled, (state, action) => {
         state.status = 'idle';
-        state.products = action.payload.products;
-        state.totalItems = action.payload.totalItems;
+        // Guard against a non-array payload (e.g. an API error body) so the grid
+        // never crashes with "products.map is not a function".
+        state.products = Array.isArray(action.payload?.products) ? action.payload.products : [];
+        state.totalItems = Number(action.payload?.totalItems) || 0;
+      })
+      .addCase(fetchProductsByFiltersAsync.rejected, (state) => {
+        state.status = 'idle';
+        state.products = [];
+        state.totalItems = 0;
       })
       .addCase(fetchBrandsAsync.pending, (state) => {
         state.status = 'loading';

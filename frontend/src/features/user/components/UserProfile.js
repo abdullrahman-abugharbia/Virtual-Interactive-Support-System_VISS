@@ -74,15 +74,15 @@ export default function UserProfile() {
   } = useForm();
 
   const handleEdit = (addressUpdate, index) => {
-    const newUser = { ...userInfo, addresses: [...userInfo.addresses] };
-    newUser.addresses.splice(index, 1, addressUpdate);
-    dispatch(updateUserAsync(newUser));
+    const addresses = [...userInfo.addresses];
+    addresses.splice(index, 1, addressUpdate);
+    dispatch(updateUserAsync({ id: userInfo.id, addresses }));
     setSelectedEditIndex(-1);
   };
   const handleRemove = (e, index) => {
-    const newUser = { ...userInfo, addresses: [...userInfo.addresses] };
-    newUser.addresses.splice(index, 1);
-    dispatch(updateUserAsync(newUser));
+    const addresses = [...userInfo.addresses];
+    addresses.splice(index, 1);
+    dispatch(updateUserAsync({ id: userInfo.id, addresses }));
   };
 
   const handleEditForm = (index) => {
@@ -99,8 +99,7 @@ export default function UserProfile() {
   };
 
   const handleAdd = (address) => {
-    const newUser = { ...userInfo, addresses: [...userInfo.addresses, address] };
-    dispatch(updateUserAsync(newUser));
+    dispatch(updateUserAsync({ id: userInfo.id, addresses: [...userInfo.addresses, address] }));
     setShowAddAddressForm(false);
   };
 

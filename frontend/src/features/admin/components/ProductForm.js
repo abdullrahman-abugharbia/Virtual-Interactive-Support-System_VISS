@@ -72,6 +72,7 @@ function ProductForm() {
       setValue('image3', selectedProduct.images[2]);
       setValue('brand', selectedProduct.brand);
       setValue('category', selectedProduct.category);
+      setValue('tags', (selectedProduct.tags || []).join(', '));
       setValue('highlight1', selectedProduct.highlights[0]);
       setValue('highlight2', selectedProduct.highlights[1]);
       setValue('highlight3', selectedProduct.highlights[2]);
@@ -107,6 +108,11 @@ function ProductForm() {
           if (product.sizes) {
             product.sizes = product.sizes.map((size) => sizes.find((sz) => sz.id === size));
           }
+          // Tags = extra category memberships, entered comma-separated.
+          product.tags =
+            typeof product.tags === 'string'
+              ? product.tags.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
+              : product.tags || [];
           delete product['image1'];
           delete product['image2'];
           delete product['image3'];
@@ -165,6 +171,21 @@ function ProductForm() {
                   <option key={category.value} value={category.value}>{category.label}</option>
                 ))}
               </select>
+            </div>
+
+            <div className="sm:col-span-6">
+              <label htmlFor="tags" className={labelCls}>Extra categories (tags)</label>
+              <input
+                id="tags"
+                type="text"
+                placeholder="e.g. gaming, premium — comma separated"
+                className={inputCls}
+                {...register('tags', {})}
+              />
+              <p className="mt-1 text-[12px] text-muted">
+                Makes the product also show under these categories, on top of its main one
+                (e.g. a laptop that also appears under “gaming”).
+              </p>
             </div>
 
             <div className="sm:col-span-6">

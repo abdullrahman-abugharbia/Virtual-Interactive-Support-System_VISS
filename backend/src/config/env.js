@@ -40,8 +40,13 @@ const env = {
   jwtCookieName: process.env.JWT_COOKIE_NAME || 'token',
   bcryptSaltRounds: toNumber(process.env.BCRYPT_SALT_ROUNDS, 12),
 
+  // Groq powers Aria's "listening" (Whisper speech-to-text).
   groqApiKey: process.env.GROQ_API_KEY || '',
   groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+
+  // Gemini powers Aria's "thinking" (the chat LLM + tool calling).
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
 };
 
 env.isProd = env.nodeEnv === 'production';

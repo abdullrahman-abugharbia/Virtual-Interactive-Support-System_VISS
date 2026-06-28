@@ -57,6 +57,25 @@ export const sendMessageAsync = createAsyncThunk(
 
       dispatch(startStreaming());
 
+      let receivedText = false; // did any reply text actually arrive this turn?
+      let serverError = null;   // error reported by the backend over the stream
+
+      // Finish the turn: flush the reply, and ONLY enter "speaking" when real text
+      // arrived — otherwise the avatar would re-speak the previous (e.g. greeting)
+      // message. Surface backend errors instead of silently leaving the turn empty.
+      const finishTurn = () => {
+        dispatch(finalizeStreamingMessage());
+        if (serverError) {
+          dispatch(addMessage({
+            role: 'assistant',
+            content: "Sorry, I ran into a problem and couldn't respond just now. Please try again.",
+          }));
+          dispatch(setAvatarState('speaking')); // speak it too, don't just type it
+        } else {
+          dispatch(setAvatarState(receivedText ? 'speaking' : 'idle'));
+        }
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -69,46 +88,75 @@ export const sendMessageAsync = createAsyncThunk(
           if (!line.startsWith('data: ')) continue;
           const data = line.slice(6).trim();
           if (data === '[DONE]') {
-            dispatch(finalizeStreamingMessage());
-            dispatch(setAvatarState('speaking'));
-            return;
+            finishTurn();
+            return serverError ? rejectWithValue(serverError) : undefined;
           }
+
+          let parsed;
           try {
-            const parsed = JSON.parse(data);
-            if (parsed.delta) dispatch(addStreamingChunk(parsed.delta));
-            if (parsed.error) throw new Error(parsed.error);
-            if (parsed.action === 'cart_updated') {
-              dispatch(fetchItemsByUserIdAsync());
-            } else if (parsed.action === 'show_product' && parsed.productId) {
-              // Aria found a specific product → open its detail page
-              router.navigate(`/product-detail/${parsed.productId}`);
-            } else if (parsed.action === 'search') {
-              // Aria ran a free-text site search → show results on the listing
-              router.navigate(parsed.query ? `/?q=${encodeURIComponent(parsed.query)}` : '/');
-            } else if (parsed.action === 'apply_filters') {
-              // Aria resolved a brand/category search → check those filters
-              dispatch(
-                setRequestedFilters({
-                  category: parsed.category || [],
-                  brand: parsed.brand || [],
-                })
-              );
-              router.navigate('/');
-            } else if (parsed.action === 'filter_category' && parsed.category) {
-              // Backward-compat: single category
-              dispatch(setRequestedFilters({ category: [parsed.category], brand: [] }));
-              router.navigate('/');
-            }
+            parsed = JSON.parse(data);
           } catch {
-            // skip malformed lines
+            continue; // skip malformed SSE lines ONLY — never swallow real events
+          }
+
+          if (parsed.error) {
+            serverError = parsed.error; // handled when the stream ends
+            continue;
+          }
+          if (parsed.delta) {
+            receivedText = true;
+            dispatch(addStreamingChunk(parsed.delta));
+            continue;
+          }
+          if (parsed.action === 'cart_updated') {
+            dispatch(fetchItemsByUserIdAsync());
+          } else if (parsed.action === 'show_product' && parsed.productId) {
+            // Aria found a specific product → open its detail page
+            router.navigate(`/product-detail/${parsed.productId}`);
+          } else if (parsed.action === 'navigate' && parsed.path) {
+            // Aria opened a page (home / cart / checkout / orders / profile)
+            router.navigate(parsed.path);
+          } else if (parsed.action === 'fill_checkout') {
+            // Aria pre-filled the checkout shipping form (she never places the order)
+            dispatch(
+              setRequestedCheckout({
+                address: parsed.address || {},
+                paymentMethod: parsed.paymentMethod || null,
+              })
+            );
+            router.navigate('/checkout');
+          } else if (parsed.action === 'search') {
+            // Aria ran a free-text site search → show results on the listing
+            router.navigate(parsed.query ? `/?q=${encodeURIComponent(parsed.query)}` : '/');
+          } else if (parsed.action === 'apply_filters') {
+            // Aria resolved a brand/category/price search → check those filters
+            dispatch(
+              setRequestedFilters({
+                category: parsed.category || [],
+                brand: parsed.brand || [],
+                minPrice: parsed.minPrice != null ? parsed.minPrice : null,
+                maxPrice: parsed.maxPrice != null ? parsed.maxPrice : null,
+              })
+            );
+            router.navigate('/');
+          } else if (parsed.action === 'filter_category' && parsed.category) {
+            // Backward-compat: single category
+            dispatch(setRequestedFilters({ category: [parsed.category], brand: [] }));
+            router.navigate('/');
           }
         }
       }
 
-      dispatch(finalizeStreamingMessage());
-      dispatch(setAvatarState('speaking'));
+      // Stream ended without an explicit [DONE].
+      finishTurn();
+      return serverError ? rejectWithValue(serverError) : undefined;
     } catch (err) {
-      dispatch(setAvatarState('idle'));
+      dispatch(finalizeStreamingMessage());
+      dispatch(addMessage({
+        role: 'assistant',
+        content: "Sorry, I ran into a problem and couldn't respond just now. Please try again.",
+      }));
+      dispatch(setAvatarState('speaking')); // speak it too, don't just type it
       return rejectWithValue(err.message);
     }
   }
@@ -126,6 +174,7 @@ const initialState = {
   isLoading: false,
   error: null,
   requestedFilters: null, // { category: [], brand: [] } Aria asked the listing to apply
+  requestedCheckout: null, // { address, paymentMethod } Aria asked checkout to pre-fill
 };
 
 const supportSlice = createSlice({
@@ -176,12 +225,19 @@ const supportSlice = createSlice({
       state.avatarState = 'idle';
       state.error = null;
       state.requestedFilters = null;
+      state.requestedCheckout = null;
     },
     setRequestedFilters(state, action) {
       state.requestedFilters = action.payload;
     },
     clearRequestedFilters(state) {
       state.requestedFilters = null;
+    },
+    setRequestedCheckout(state, action) {
+      state.requestedCheckout = action.payload;
+    },
+    clearRequestedCheckout(state) {
+      state.requestedCheckout = null;
     },
   },
   extraReducers: (builder) => {
@@ -229,6 +285,8 @@ export const {
   resetSession,
   setRequestedFilters,
   clearRequestedFilters,
+  setRequestedCheckout,
+  clearRequestedCheckout,
 } = supportSlice.actions;
 
 // Selectors
@@ -241,5 +299,6 @@ export const selectAvatarState = (state) => state.support.avatarState;
 export const selectSupportLoading = (state) => state.support.isLoading;
 export const selectSupportError = (state) => state.support.error;
 export const selectRequestedFilters = (state) => state.support.requestedFilters;
+export const selectRequestedCheckout = (state) => state.support.requestedCheckout;
 
 export default supportSlice.reducer;

@@ -355,3 +355,8 @@ VALUES
     false
   )
 ON CONFLICT DO NOTHING;
+
+-- Gaming laptops also live under the "gaming" category (extra membership via tags[]).
+UPDATE products
+SET tags = ARRAY['gaming']
+WHERE title IN ('Lenovo ThinkPad X1 Carbon', 'ASUS ROG Zephyrus G14');

@@ -17,7 +17,7 @@ export function fetchLoggedInUser() {
 }
 
 export function updateUser(update) {
-  return new Promise(async (resolve) => {
+  return new Promise(async (resolve, reject) => {
     const response = await fetch(`${BASE_URL}/users/${update.id}`, {
       method: 'PATCH',
       body: JSON.stringify(update),
@@ -25,6 +25,11 @@ export function updateUser(update) {
       credentials: 'include',
     });
     const data = await response.json();
+    // Don't overwrite userInfo with an error body on failure.
+    if (!response.ok) {
+      reject(data?.message || 'Failed to update profile');
+      return;
+    }
     resolve({ data });
   });
 }

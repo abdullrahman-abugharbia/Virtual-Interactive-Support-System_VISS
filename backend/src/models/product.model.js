@@ -52,6 +52,7 @@ function mapProduct(row) {
     stock: Number(row.stock),
     brand: row.brand,
     category: row.category_value || null,
+    tags: row.tags || [],
     thumbnail: row.thumbnail,
     images: row.images || [],
     highlights: row.highlights || [],
@@ -87,9 +88,10 @@ async function createProduct(payload) {
         highlights,
         colors,
         sizes,
-        deleted
+        deleted,
+        tags
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING id
     `,
     [
@@ -108,6 +110,7 @@ async function createProduct(payload) {
       payload.colors || [],
       payload.sizes || [],
       Boolean(payload.deleted),
+      payload.tags || [],
     ]
   );
 
@@ -138,6 +141,7 @@ async function updateProduct(id, payload) {
   if (payload.colors !== undefined) apply('colors', payload.colors);
   if (payload.sizes !== undefined) apply('sizes', payload.sizes);
   if (payload.deleted !== undefined) apply('deleted', Boolean(payload.deleted));
+  if (payload.tags !== undefined) apply('tags', payload.tags);
 
   if (payload.category !== undefined) {
     const categoryId = await ensureCategoryByValue(payload.category || null);
@@ -210,6 +214,8 @@ async function listProducts({
   limit = 12,
   offset = 0,
   search = '',
+  minPrice = null,
+  maxPrice = null,
 }) {
   const filters = [];
   const params = [];
@@ -219,28 +225,58 @@ async function listProducts({
     filters.push('p.deleted = FALSE');
   }
 
-  if (categories.length) {
-    filters.push(`c.value = ANY($${idx++}::text[])`);
-    params.push(categories);
+  // Categories combine with AND: every selected category must match the product —
+  // by its primary category, by an extra category in its tags[], or as a keyword in
+  // its name/label. So "gaming" + "laptops" returns gaming laptops (laptops tagged
+  // "gaming"), not all gaming items + all laptops. A single category is a plain
+  // primary-or-tag match.
+  if (categories.length === 1) {
+    filters.push(`(c.value = $${idx} OR $${idx} = ANY(p.tags))`);
+    params.push(categories[0]);
+    idx += 1;
+  } else if (categories.length > 1) {
+    for (const cat of categories) {
+      filters.push(
+        `(c.value = $${idx} OR $${idx} = ANY(p.tags) OR p.title ILIKE $${idx + 1} OR c.label ILIKE $${idx + 1})`
+      );
+      params.push(cat, `%${cat}%`);
+      idx += 2;
+    }
   }
 
+  // Brands stay OR (any of the selected) — a product has only one brand, so
+  // AND-ing brands would always return nothing.
   if (brands.length) {
     filters.push(`p.brand = ANY($${idx++}::text[])`);
     params.push(brands);
   }
 
-  // Free-text search: every token must appear in the product name, brand, or
-  // category. Description is intentionally excluded — matching it returns noise
-  // (e.g. phones mentioning "camera" in their description for a "camera" search).
+  // Free-text search: every token must appear in the product name, brand, category,
+  // or one of its tags. Tags are what let a product match terms not in its name —
+  // e.g. "gaming laptop" finds laptops tagged "gaming". Description is intentionally
+  // excluded — matching it returns noise (e.g. phones mentioning "camera" in their
+  // description for a "camera" search).
   if (search) {
     const tokens = String(search).split(/\s+/).filter(Boolean);
     for (const token of tokens) {
       filters.push(
-        `(p.title ILIKE $${idx} OR p.brand ILIKE $${idx} OR c.value ILIKE $${idx} OR c.label ILIKE $${idx})`
+        `(p.title ILIKE $${idx} OR p.brand ILIKE $${idx} OR c.value ILIKE $${idx} OR c.label ILIKE $${idx} OR array_to_string(p.tags, ' ') ILIKE $${idx})`
       );
       params.push(`%${token}%`);
       idx += 1;
     }
+  }
+
+  // Price range (on the actual selling price / discount_price).
+  if (minPrice !== null && minPrice !== undefined) {
+    filters.push(`p.discount_price >= $${idx}`);
+    params.push(minPrice);
+    idx += 1;
+  }
+  if (maxPrice !== null && maxPrice !== undefined) {
+    filters.push(`p.discount_price <= $${idx}`);
+    params.push(maxPrice);
+    idx += 1;
   }
 
   const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : '';

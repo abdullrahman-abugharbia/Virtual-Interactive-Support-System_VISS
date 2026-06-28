@@ -57,6 +57,14 @@ async function getProducts(query) {
   const order = String(query._order || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
   const search = String(query.q || query.search || '').trim();
 
+  const toPrice = (v) => {
+    if (v === undefined || v === null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const minPrice = toPrice(query.minPrice);
+  const maxPrice = toPrice(query.maxPrice);
+
   return productModel.listProducts({
     categories,
     brands,
@@ -66,6 +74,8 @@ async function getProducts(query) {
     limit,
     offset,
     search,
+    minPrice,
+    maxPrice,
   });
 }
 

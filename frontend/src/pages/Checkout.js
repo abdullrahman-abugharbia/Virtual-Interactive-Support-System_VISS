@@ -3,7 +3,11 @@ import { useSelector, useDispatch } from 'react-redux';
 import { selectItems } from '../features/cart/cartSlice';
 import { useForm } from 'react-hook-form';
 import { updateUserAsync } from '../features/user/userSlice';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import {
+  selectRequestedCheckout,
+  clearRequestedCheckout,
+} from '../features/support/supportSlice';
 import {
   createOrderAsync,
   selectCurrentOrder,
@@ -23,13 +27,19 @@ function Checkout() {
     register,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors },
   } = useForm();
 
-  const user = useSelector(selectUserInfo);
+  const rawUser = useSelector(selectUserInfo);
+  // Normalize: addresses must always be an array (it can be null/undefined).
+  const user = rawUser
+    ? { ...rawUser, addresses: Array.isArray(rawUser.addresses) ? rawUser.addresses : [] }
+    : null;
   const items = useSelector(selectItems);
   const status = useSelector(selectStatus);
   const currentOrder = useSelector(selectCurrentOrder);
+  const requestedCheckout = useSelector(selectRequestedCheckout);
 
   const totalAmount = items.reduce(
     (amount, item) => item.product.discountPrice * item.quantity + amount,
@@ -47,6 +57,20 @@ function Checkout() {
   const handlePayment = (method) => {
     setPaymentMethod(method);
   };
+
+  // Aria can pre-fill the shipping form for the customer (she never places the
+  // order — that stays a manual click). Populate fields, then clear the request.
+  useEffect(() => {
+    if (!requestedCheckout) return;
+    const { address, paymentMethod: pm } = requestedCheckout;
+    if (address) {
+      Object.entries(address).forEach(([field, value]) => {
+        if (value != null && value !== '') setValue(field, value);
+      });
+    }
+    if (pm === 'card' || pm === 'cash') setPaymentMethod(pm);
+    dispatch(clearRequestedCheckout());
+  }, [requestedCheckout, setValue, dispatch]);
 
   const handleOrder = () => {
     if (selectedAddress && paymentMethod) {
@@ -72,7 +96,7 @@ function Checkout() {
         <Navigate to={`/order-success/${currentOrder.id}`} replace={true}></Navigate>
       )}
 
-      {status === 'loading' ? (
+      {status === 'loading' || !user ? (
         <div className="flex justify-center py-24">
           <Grid height="70" width="70" color="#6366F1" ariaLabel="grid-loading" radius="12.5" visible={true} />
         </div>
@@ -88,9 +112,11 @@ function Checkout() {
                 className="rounded-card border border-line bg-surface p-[26px]"
                 noValidate
                 onSubmit={handleSubmit((data) => {
+                  // Send only id + addresses (sending the whole user can fail
+                  // validation, e.g. a null name on signup accounts).
                   dispatch(
                     updateUserAsync({
-                      ...user,
+                      id: user.id,
                       addresses: [...user.addresses, data],
                     })
                   );

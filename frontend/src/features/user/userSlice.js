@@ -63,6 +63,9 @@ export const userSlice = createSlice({
         // earlier there was loggedInUser variable in other slice
         state.userInfo = action.payload;
       })
+      .addCase(updateUserAsync.rejected, (state) => {
+        state.status = 'idle';
+      })
       .addCase(fetchLoggedInUserAsync.pending, (state) => {
         state.status = 'loading';
       })

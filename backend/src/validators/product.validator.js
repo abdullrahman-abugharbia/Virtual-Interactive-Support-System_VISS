@@ -12,6 +12,7 @@ const createProductSchema = z.object({
   stock: z.coerce.number().int().nonnegative(),
   brand: z.string().min(1),
   category: z.string().min(1),
+  tags: z.array(z.string()).optional().default([]),
   thumbnail: z.string().url().or(z.string().min(1)).optional(),
   images: freeJsonArray.optional().default([]),
   highlights: freeJsonArray.optional().default([]),
@@ -28,6 +29,8 @@ const productListQuerySchema = paginationQuerySchema.extend({
   admin: z.string().optional(),
   q: z.string().optional(),
   search: z.string().optional(),
+  minPrice: z.string().optional(),
+  maxPrice: z.string().optional(),
 });
 
 module.exports = {

@@ -34,7 +34,7 @@ export function updateProduct(update) {
   });
 }
 
-export function fetchProductsByFilters(filter, sort, pagination, admin, search) {
+export function fetchProductsByFilters(filter, sort, pagination, admin, search, minPrice, maxPrice) {
   let queryString = '';
   for (let key in filter) {
     const categoryValues = filter[key];
@@ -51,15 +51,26 @@ export function fetchProductsByFilters(filter, sort, pagination, admin, search) 
   if (search) {
     queryString += `q=${encodeURIComponent(search)}&`;
   }
+  if (minPrice !== undefined && minPrice !== null && minPrice !== '') {
+    queryString += `minPrice=${encodeURIComponent(minPrice)}&`;
+  }
+  if (maxPrice !== undefined && maxPrice !== null && maxPrice !== '') {
+    queryString += `maxPrice=${encodeURIComponent(maxPrice)}&`;
+  }
   if (admin) {
     queryString += `admin=true`;
   }
 
   return new Promise(async (resolve) => {
     const response = await fetch(`${BASE_URL}/products?${queryString}`, { credentials: 'include' });
+    if (!response.ok) {
+      // Don't let an API error become a non-array that crashes the grid.
+      resolve({ data: { products: [], totalItems: 0 } });
+      return;
+    }
     const data = await response.json();
     const totalItems = response.headers.get('X-Total-Count');
-    resolve({ data: { products: data, totalItems: +totalItems } });
+    resolve({ data: { products: Array.isArray(data) ? data : [], totalItems: +totalItems || 0 } });
   });
 }
 

@@ -38,7 +38,7 @@ const chat = asyncHandler(async (req, res) => {
 
   let fullReply = '';
   try {
-    fullReply = await supportService.streamGroqResponse(
+    fullReply = await supportService.streamAgentResponse(
       req.params.id,
       message.trim(),
       (delta, meta) => {

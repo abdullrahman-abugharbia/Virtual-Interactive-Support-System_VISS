@@ -36,8 +36,14 @@ export default function SupportModal() {
     hasInitialized.current = true;
 
     dispatch(initSessionAsync(null)).then(() => {
-      dispatch(addMessage({ role: 'assistant', content: GREETING }));
-      dispatch(setAvatarState('speaking'));
+      // Guard against a duplicate greeting if the effect runs twice
+      // (StrictMode / remount) while messages persist in the store.
+      dispatch((d, getState) => {
+        if (getState().support.messages.length === 0) {
+          d(addMessage({ role: 'assistant', content: GREETING }));
+          d(setAvatarState('speaking'));
+        }
+      });
     });
   }, [dispatch]);
 

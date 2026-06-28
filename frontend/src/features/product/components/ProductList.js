@@ -59,6 +59,14 @@ export default function ProductList() {
   const [sort, setSort] = useState({});
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
+  const [priceRange, setPriceRange] = useState({ min: '', max: '' }); // applied → drives fetch
+  const [priceDraft, setPriceDraft] = useState({ min: '', max: '' }); // input values
+
+  const applyPrice = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    setPriceRange({ min: priceDraft.min, max: priceDraft.max });
+    setPage(1);
+  };
 
   const handleFilter = (e, section, option) => {
     // Immutable update — never mutate the existing arrays (they may be frozen
@@ -104,17 +112,30 @@ export default function ProductList() {
     (n, arr) => n + (arr ? arr.length : 0),
     0
   );
-  const hasFilters = activeFilterCount > 0;
-  const clearFilters = () => setFilter({});
+  const hasFilters = activeFilterCount > 0 || priceRange.min !== '' || priceRange.max !== '';
+  const clearFilters = () => {
+    setFilter({});
+    setPriceRange({ min: '', max: '' });
+    setPriceDraft({ min: '', max: '' });
+  };
 
   useEffect(() => {
     const pagination = { _page: page, _limit: ITEMS_PER_PAGE };
-    dispatch(fetchProductsByFiltersAsync({ filter, sort, pagination, search }));
-  }, [dispatch, filter, sort, page, search]);
+    dispatch(
+      fetchProductsByFiltersAsync({
+        filter,
+        sort,
+        pagination,
+        search,
+        minPrice: priceRange.min,
+        maxPrice: priceRange.max,
+      })
+    );
+  }, [dispatch, filter, sort, page, search, priceRange.min, priceRange.max]);
 
   useEffect(() => {
     setPage(1);
-  }, [totalItems, sort, search]);
+  }, [totalItems, sort, search, priceRange.min, priceRange.max]);
 
   useEffect(() => {
     dispatch(fetchBrandsAsync());
@@ -129,6 +150,12 @@ export default function ProductList() {
       if (requestedFilters.category?.length) next.category = [...requestedFilters.category];
       if (requestedFilters.brand?.length) next.brand = [...requestedFilters.brand];
       setFilter(next); // empty object = cleared filters
+      const pr = {
+        min: requestedFilters.minPrice != null ? String(requestedFilters.minPrice) : '',
+        max: requestedFilters.maxPrice != null ? String(requestedFilters.maxPrice) : '',
+      };
+      setPriceRange(pr);
+      setPriceDraft(pr);
       setPage(1);
       dispatch(clearRequestedFilters());
     }
@@ -158,6 +185,9 @@ export default function ProductList() {
         filter={filter}
         hasFilters={hasFilters}
         clearFilters={clearFilters}
+        priceDraft={priceDraft}
+        setPriceDraft={setPriceDraft}
+        applyPrice={applyPrice}
       />
 
       <main className="mx-auto max-w-[1440px] px-5 pb-24 pt-11 sm:px-10">
@@ -221,6 +251,9 @@ export default function ProductList() {
             filter={filter}
             hasFilters={hasFilters}
             clearFilters={clearFilters}
+            priceDraft={priceDraft}
+            setPriceDraft={setPriceDraft}
+            applyPrice={applyPrice}
           />
 
           <div>
@@ -281,7 +314,47 @@ function FilterGroup({ section, handleFilter, idPrefix, filter }) {
   );
 }
 
-function DesktopFilter({ handleFilter, filters, filter, hasFilters, clearFilters }) {
+/* ── Price range filter ──────────────────────────────────────── */
+function PriceFilter({ draft, setDraft, onApply, idPrefix }) {
+  const inputCls =
+    'w-full rounded-[8px] border border-line bg-background px-2.5 py-1.5 text-sm text-content outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary-soft';
+  return (
+    <form onSubmit={onApply} className="mb-6">
+      <div className="border-b border-line-subtle pb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-dim">
+        Price
+      </div>
+      <div className="flex items-center gap-2 pt-3">
+        <input
+          id={`${idPrefix}-min`}
+          type="number"
+          min="0"
+          placeholder="Min $"
+          value={draft.min}
+          onChange={(e) => setDraft((d) => ({ ...d, min: e.target.value }))}
+          className={inputCls}
+        />
+        <span className="text-dim">–</span>
+        <input
+          id={`${idPrefix}-max`}
+          type="number"
+          min="0"
+          placeholder="Max $"
+          value={draft.max}
+          onChange={(e) => setDraft((d) => ({ ...d, max: e.target.value }))}
+          className={inputCls}
+        />
+      </div>
+      <button
+        type="submit"
+        className="mt-2.5 w-full rounded-[8px] border border-line bg-surface-raised py-1.5 text-[13px] font-medium text-[#CBD5E1] transition-colors hover:border-[#475569] hover:text-content"
+      >
+        Apply
+      </button>
+    </form>
+  );
+}
+
+function DesktopFilter({ handleFilter, filters, filter, hasFilters, clearFilters, priceDraft, setPriceDraft, applyPrice }) {
   return (
     <aside className="sticky top-24 hidden lg:block">
       {filters.map((section) => (
@@ -293,6 +366,7 @@ function DesktopFilter({ handleFilter, filters, filter, hasFilters, clearFilters
           idPrefix="filter"
         />
       ))}
+      <PriceFilter draft={priceDraft} setDraft={setPriceDraft} onApply={applyPrice} idPrefix="price" />
       {hasFilters && (
         <button
           onClick={clearFilters}
@@ -313,6 +387,9 @@ function MobileFilter({
   filter,
   hasFilters,
   clearFilters,
+  priceDraft,
+  setPriceDraft,
+  applyPrice,
 }) {
   return (
     <Transition.Root show={mobileFiltersOpen} as={Fragment}>
@@ -366,6 +443,7 @@ function MobileFilter({
                     idPrefix="filter-mobile"
                   />
                 ))}
+                <PriceFilter draft={priceDraft} setDraft={setPriceDraft} onApply={applyPrice} idPrefix="price-mobile" />
                 {hasFilters && (
                   <button
                     onClick={clearFilters}
@@ -401,7 +479,7 @@ function ProductGrid({ products, status, handleAddToCart }) {
 
   return (
     <div className="grid grid-cols-1 gap-[22px] sm:grid-cols-2 xl:grid-cols-3">
-      {products.map((product) => {
+      {(Array.isArray(products) ? products : []).map((product) => {
         const discount =
           product.price > 0
             ? Math.round((1 - product.discountPrice / product.price) * 100)

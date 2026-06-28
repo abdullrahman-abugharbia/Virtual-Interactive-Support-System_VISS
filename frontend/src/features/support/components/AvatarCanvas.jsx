@@ -18,6 +18,7 @@ export default function AvatarCanvas() {
   const avatarState   = useSelector(selectAvatarState);
   const messages      = useSelector(selectMessages);
   const speakTimerRef = useRef(null);
+  const lastSpokenIdRef = useRef(null); // id of the message already spoken — never repeat it
 
   const handleSpeakEnd = useCallback(() => {
     clearTimeout(speakTimerRef.current);
@@ -33,16 +34,18 @@ export default function AvatarCanvas() {
     setMood(MOOD_MAP[avatarState] || 'neutral');
   }, [avatarState, setMood]);
 
-  // Speak the latest assistant message when state becomes 'speaking'
+  // Speak the latest assistant message ONCE, when state becomes 'speaking'.
   useEffect(() => {
     if (avatarState !== 'speaking') return;
     const last = [...messages].reverse().find((m) => m.role === 'assistant');
-    if (last) {
-      speak(last.content);
-      speakTimerRef.current = setTimeout(() => dispatch(setAvatarState('idle')), SPEAK_TIMEOUT_MS);
-    } else {
+    // Nothing to say, or we already spoke this exact message → go idle, don't repeat.
+    if (!last || lastSpokenIdRef.current === last.id) {
       dispatch(setAvatarState('idle'));
+      return;
     }
+    lastSpokenIdRef.current = last.id;
+    speak(last.content);
+    speakTimerRef.current = setTimeout(() => dispatch(setAvatarState('idle')), SPEAK_TIMEOUT_MS);
     return () => clearTimeout(speakTimerRef.current);
   }, [avatarState, messages, speak, dispatch]);
 
@@ -53,7 +56,7 @@ export default function AvatarCanvas() {
     >
       <iframe
         ref={iframeRef}
-        src="/avatar-frame.html"
+        src="/avatar-frame.html?v=2"
         title="Aria avatar"
         style={{ width: '100%', height: '100%', border: 'none', display: 'block', background: 'transparent' }}
         allow="microphone"

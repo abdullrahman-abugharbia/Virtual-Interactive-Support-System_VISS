@@ -68,7 +68,7 @@
   </script>
 
   <script type="module">
-    import { TalkingHead } from '/talkinghead/talkinghead.mjs';
+    import { TalkingHead } from '/talkinghead/talkinghead.mjs?v=2';
 
     const container = document.getElementById('avatar-container');
     const loader    = document.getElementById('loader');
@@ -99,9 +99,11 @@
     // ── Initialise TalkingHead (no TTS endpoint — we use browser TTS) ──
     async function initAvatar() {
       head = new TalkingHead(container, {
-        ttsEndpoint: '',        // empty → no external TTS API used
+        ttsEndpoint: '',          // empty → no external TTS API used
         cameraView: 'upper',
         cameraRotateEnable: false,
+        avatarIdleEyeContact: 1,  // keep looking at the user (not gazing away/up)
+        avatarIdleHeadMove: 0.2,  // subtle head motion only
       });
 
       try {
@@ -119,6 +121,10 @@
             }
           }
         );
+
+        // Face the user immediately so she doesn't start in the side/up pose
+        // and then turn — look at the camera from the very first frame.
+        try { head.lookAtCamera(10); } catch {}
 
         loader.style.display = 'none';
         ready = true;
